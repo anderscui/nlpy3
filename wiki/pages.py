@@ -1,9 +1,11 @@
 # coding=utf-8
 
-from collections import defaultdict
 import json
 import re
 import xml.etree.ElementTree as etree
+import sys
+
+from collections import defaultdict
 
 nsmap = {'': 'http://www.mediawiki.org/xml/export-0.10/',
          'xsi': 'http://www.w3.org/2001/XMLSchema-instance'}
@@ -36,30 +38,39 @@ def clean_title(title):
     return extract_cat_title(title) if ':' in title else title
 
 
-def extract_categories(fname):
+def extract_categories(fname, n=10000):
     categories = {}
+    i = 0
     for event, elem in etree.iterparse(fname, events=('end',)):
+        i += 1
         if elem.tag == fixtag('page'):
             ns = elem.find(xpath('ns')).text
             if ns not in [NS_CAT]:
                 continue
 
             title = elem.find(xpath('title')).text
+            print(title)
             pid = elem.find(xpath('id')).text
             categories[extract_cat_title(title)] = pid
+
+            # THIS is REQUIRED
+            elem.clear()
+
+        if i >= n:
+            break
+
     return categories
 
 
-def extract_pages(fname, categories):
+def extract_pages(fname, categories, n=10000):
     inst_of = defaultdict(list)
     subcls_of = defaultdict(list)
     redirects = defaultdict()
 
     i = 0
     for event, elem in etree.iterparse(fname, events=('end',)):
+        i += 1
         if elem.tag == fixtag('page'):
-            i += 1
-
             ns = elem.find(xpath('ns')).text
             if ns not in ns_list:
                 continue
@@ -67,7 +78,6 @@ def extract_pages(fname, categories):
             title = elem.find(xpath('title')).text
             if ns == NS_CAT:
                 title = extract_cat_title(title)
-            # print(title)
             # pid = elem.find(xpath('id')).text
 
             redirect = elem.find(xpath('redirect'))
@@ -80,13 +90,18 @@ def extract_pages(fname, categories):
             cats = [c.split('|')[0].strip() for label, c in cats]
             if ns == NS_PAGE:
                 for c in cats:
-                    inst_of[title].append(c)
+                    if c in categories:
+                        inst_of[title].append(c)
             elif ns == NS_CAT:
                 for c in cats:
-                    subcls_of[title].append(c)
+                    if c in categories:
+                        subcls_of[title].append(c)
 
-        # if i >= 10000:
-        #     break
+            # THIS is REQUIRED
+            elem.clear()
+
+        if i >= n:
+            break
 
     return {"instance_of": inst_of,
             "subclass_of": subcls_of,
@@ -94,15 +109,24 @@ def extract_pages(fname, categories):
 
 
 if __name__ == '__main__':
-    source = 'zh_classicalwiki-20170501.xml'
     extract_cats = True
+    source = 'zh_classicalwiki-20170501.xml'
+    if len(sys.argv) == 2:
+        source = sys.argv[1]
+    elif len(sys.argv) == 3:
+        source = sys.argv[1]
+        extract_cats = sys.argv[2] == 'c'
+
+    print(extract_cats)
+    print(source)
+
     if extract_cats:
-        categories = extract_categories(source)
+        categories = extract_categories(source, n=10**10)
         print(len(categories))
         json.dump(categories, open('cats.json', 'w'))
     else:
         categories = json.load(open('cats.json'))
-        pages = extract_pages(source, categories)
+        pages = extract_pages(source, categories, n=10**10)
 
         instance_of = pages['instance_of']
         print(len(instance_of))
@@ -112,12 +136,3 @@ if __name__ == '__main__':
         print(len(synonym_of))
 
         json.dump(pages, open('pages.json', 'w'))
-
-        # for s in synonym_of:
-        #     print('{}: {}'.format(s, synonym_of[s]))
-
-        # print(subclasses['數學'])
-        # print(subclasses['自然科學'])
-        #
-        # print(instances['組合學'])
-        # print(instances['西楚霸王'])
