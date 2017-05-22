@@ -19,6 +19,17 @@ ns_list = [NS_PAGE, NS_CAT]
 RE_CAT = re.compile(r'\[\[(Category|分類):(.+?)\]\]', re.U)
 
 
+class Page(object):
+    def __init__(self, ns, pid, title):
+        self.ns = ns
+        self.pid = pid
+        self.title = title
+
+
+def dump_to_json(obj, fname):
+    json.dump(obj, open(fname, 'w'), ensure_ascii=False)
+
+
 def extract_cat_title(cat):
     return cat.split(':')[1].strip()
 
@@ -48,47 +59,6 @@ def pages(input):
                 yield page
                 page = []
                 in_page = False
-
-
-def extract_category(category_page):
-    page = etree.fromstring(category_page)
-    ns = page.find('ns').text
-    # print(ns)
-    if ns not in [NS_CAT]:
-        return None
-
-    title = page.find('title').text
-    pid = page.find('id').text
-    page.clear()
-    page = None
-
-    return (extract_cat_title(title), int(pid))
-
-
-def extract_categories(batch=1000):
-    with open(source) as f:
-        batch_no = 1
-        total = 0
-        categories = {}
-        for page_lines in pages(f):
-            page_text = ''.join(page_lines)
-
-            cat = extract_category(page_text)
-            if cat:
-                title, cid = cat
-                categories[title] = cid
-
-                if len(categories) >= batch:
-                    total += len(categories)
-                    print(total)
-                    json.dump(categories, open('cats_{}.json'.format(batch_no), 'w'))
-                    categories = {}
-                    batch_no += 1
-
-        if categories:
-            total += len(categories)
-            print(total)
-            json.dump(categories, open('cats_{}.json'.format(batch_no), 'w'))
 
 
 def extract_page(categories, page_text):
@@ -125,6 +95,47 @@ def extract_page(categories, page_text):
     return (title, (inst_of, subcls_of, redirect_to))
 
 
+def extract_title(page_text):
+    page = etree.fromstring(page_text)
+    ns = page.find('ns').text
+    if ns not in ns_list:
+        return None
+
+    title = page.find('title').text
+    if ns == NS_CAT:
+        title = extract_cat_title(title)
+    pid = page.find('id').text
+
+    page.clear()
+
+    return Page(ns, pid, title)
+
+
+def extract_titles(batch=1000):
+    with open(source) as f:
+        batch_no = 1
+        total = 0
+        titles = defaultdict(dict)
+        for page_lines in pages(f):
+            page_text = ''.join(page_lines)
+
+            page = extract_title(page_text)
+            if page:
+                titles[page.ns][page.title] = page.pid
+
+                if len(titles[NS_PAGE]) >= batch:
+                    total += len(titles[NS_PAGE])
+                    print(total)
+                    dump_to_json(titles, 'titles_{}.json'.format(batch_no))
+                    titles = defaultdict(dict)
+                    batch_no += 1
+
+        if titles:
+            total += len(titles[NS_PAGE])
+            print(total)
+            dump_to_json(titles, 'titles_{}.json'.format(batch_no))
+
+
 def extract_pages(categories, batch=1000):
     inst_of = defaultdict(list)
     subcls_of = defaultdict(list)
@@ -154,7 +165,7 @@ def extract_pages(categories, batch=1000):
                     obj = {'instance_of': inst_of,
                            'subclass_of': subcls_of,
                            'synonym_of': redirects}
-                    json.dump(obj, open('pages_{}.json'.format(batch_no), 'w'))
+                    dump_to_json(obj, 'pages_{}.json'.format(batch_no))
 
                     inst_of = defaultdict(list)
                     subcls_of = defaultdict(list)
@@ -167,7 +178,7 @@ def extract_pages(categories, batch=1000):
             obj = {'instance_of': inst_of,
                    'subclass_of': subcls_of,
                    'synonym_of': redirects}
-            json.dump(obj, open('pages_{}.json'.format(batch_no), 'w'))
+            dump_to_json(obj, 'pages_{}.json'.format(batch_no))
 
 
 def check_page_count():
@@ -175,14 +186,22 @@ def check_page_count():
         assert len(list(pages(f))) == 65556
 
 
-def combine_categories():
-    all_cats = {}
-    for fname in glob.glob('./cats_*.json'):
+def combine_titles():
+    all_titles = {NS_CAT: {}, NS_PAGE: {}}
+    for fname in glob.glob('./titles_*.json'):
         with open(fname) as f:
-            cats = json.load(f)
-            all_cats.update(cats)
-    print(len(all_cats))
-    json.dump(all_cats, open('cats.json', 'w'))
+            print(fname)
+            titles = json.load(f)
+            if NS_CAT in titles:
+                all_titles[NS_CAT].update(titles[NS_CAT])
+            else:
+                print('cat not found')
+            if NS_PAGE in titles:
+                all_titles[NS_PAGE].update(titles[NS_PAGE])
+            else:
+                print('page not found')
+
+    dump_to_json(all_titles, 'titles.json')
 
 
 def combine_pages():
@@ -195,7 +214,7 @@ def combine_pages():
             all_pages['synonym_of'].update(pages['synonym_of'])
             print(fname)
     print(len(all_pages))
-    json.dump(all_pages, open('pages.json', 'w'))
+    dump_to_json(all_pages, 'pages.json')
 
 
 if __name__ == '__main__':
@@ -213,16 +232,14 @@ if __name__ == '__main__':
     # check_page_count()
 
     if extract_cats:
-        extract_categories(1000*10)
+        # extract_categories(1000*10)
+        extract_titles(1000 * 100)
     else:
-        combine_categories()
-        categories = json.load(open('cats.json'))
+        print('combining titles...')
+        combine_titles()
+        print('combining title done...')
+        titles = json.load(open('titles.json'))
+        categories = titles[NS_CAT]
         extract_pages(categories, batch=1000 * 100)
-        combine_pages()
-
-        # instance_of = pages['instance_of']
-        # print(len(instance_of))
-        # subclass_of = pages['subclass_of']
-        # print(len(subclass_of))
-        # synonym_of = pages['synonym_of']
-        # print(len(synonym_of))
+        # print('combining pages')
+        # combine_pages()
