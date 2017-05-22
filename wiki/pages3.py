@@ -1,6 +1,5 @@
 # coding=utf-8
 
-import glob
 import json
 import re
 import xml.etree.ElementTree as etree
@@ -18,6 +17,9 @@ ns_list = [NS_PAGE, NS_CAT]
 # [[Category:自然科學]]
 RE_CAT = re.compile(r'\[\[(Category|分類):(.+?)\]\]', re.U)
 
+tagRE = re.compile(r'(.*?)<(/?\w+)[^>]*?>(?:([^<]*)(<.*?>)?)?')
+keyRE = re.compile(r'key="(\d*)"')
+
 
 def extract_cat_title(cat):
     return cat.split(':')[1].strip()
@@ -25,6 +27,69 @@ def extract_cat_title(cat):
 
 def clean_title(title):
     return extract_cat_title(title) if ':' in title else title
+
+
+def pages_from(input):
+    """
+    Scans input extracting pages.
+    :return: (id, revid, title, namespace key, page), page is a list of lines.
+    """
+    # we collect individual lines, since str.join() is significantly faster
+    # than concatenation
+    page = []
+    id = None
+    ns = '0'
+    last_id = None
+    revid = None
+    inText = False
+    redirect = False
+    title = None
+    for line in input:
+        if '<' not in line:  # faster than doing re.search()
+            if inText:
+                page.append(line)
+            continue
+        m = tagRE.search(line)
+        if not m:
+            continue
+        tag = m.group(2)
+        if tag == 'page':
+            page = []
+            redirect = False
+        elif tag == 'id' and not id:
+            id = m.group(3)
+        elif tag == 'id' and id:
+            revid = m.group(3)
+        elif tag == 'title':
+            title = m.group(3)
+        elif tag == 'ns':
+            ns = m.group(3)
+        elif tag == 'redirect':
+            redirect = True
+        elif tag == 'text':
+            if m.lastindex == 3 and line[m.start(3)-2] == '/': # self closing
+                # <text xml:space="preserve" />
+                continue
+            inText = True
+            line = line[m.start(3):m.end(3)]
+            page.append(line)
+            if m.lastindex == 4:  # open-close
+                inText = False
+        elif tag == '/text':
+            if m.group(1):
+                page.append(m.group(1))
+            inText = False
+        elif inText:
+            page.append(line)
+        elif tag == '/page':
+            if id != last_id and not redirect:
+                yield (id, revid, title, ns, page)
+                last_id = id
+                ns = '0'
+            id = None
+            revid = None
+            title = None
+            page = []
 
 
 def pages(input):
@@ -148,26 +213,11 @@ def extract_pages(categories, batch=1000):
                     redirects[title] = redirect_to
 
                 if len(inst_of) >= batch:
-                    total += len(inst_of)
-                    print(total)
+                    break
 
-                    obj = {'instance_of': inst_of,
-                           'subclass_of': subcls_of,
-                           'synonym_of': redirects}
-                    json.dump(obj, open('pages_{}.json'.format(batch_no), 'w'))
-
-                    inst_of = defaultdict(list)
-                    subcls_of = defaultdict(list)
-                    redirects = defaultdict()
-                    batch_no += 1
-
-        if inst_of or subcls_of or redirects:
-            total += len(inst_of)
-            print(total)
-            obj = {'instance_of': inst_of,
-                   'subclass_of': subcls_of,
-                   'synonym_of': redirects}
-            json.dump(obj, open('pages_{}.json'.format(batch_no), 'w'))
+    return {"instance_of": inst_of,
+            "subclass_of": subcls_of,
+            "synonym_of": redirects}
 
 
 def check_page_count():
@@ -175,31 +225,8 @@ def check_page_count():
         assert len(list(pages(f))) == 65556
 
 
-def combine_categories():
-    all_cats = {}
-    for fname in glob.glob('./cats_*.json'):
-        with open(fname) as f:
-            cats = json.load(f)
-            all_cats.update(cats)
-    print(len(all_cats))
-    json.dump(all_cats, open('cats.json', 'w'))
-
-
-def combine_pages():
-    all_pages = {"instance_of": defaultdict(list), "subclass_of": defaultdict(list), "synonym_of": defaultdict()}
-    for fname in glob.glob('./pages_*.json'):
-        with open(fname) as f:
-            pages = json.load(f)
-            all_pages['instance_of'].update(pages['instance_of'])
-            all_pages['subclass_of'].update(pages['subclass_of'])
-            all_pages['synonym_of'].update(pages['synonym_of'])
-            print(fname)
-    print(len(all_pages))
-    json.dump(all_pages, open('pages.json', 'w'))
-
-
 if __name__ == '__main__':
-    extract_cats = False
+    extract_cats = True
     source = 'zh_classicalwiki-20170501.xml'
     if len(sys.argv) == 2:
         source = sys.argv[1]
@@ -213,16 +240,16 @@ if __name__ == '__main__':
     # check_page_count()
 
     if extract_cats:
-        extract_categories(1000*10)
+        extract_categories(1000*100)
     else:
-        combine_categories()
         categories = json.load(open('cats.json'))
-        extract_pages(categories, batch=1000 * 100)
-        combine_pages()
+        pages = extract_pages(categories, batch=10 ** 10)
 
-        # instance_of = pages['instance_of']
-        # print(len(instance_of))
-        # subclass_of = pages['subclass_of']
-        # print(len(subclass_of))
-        # synonym_of = pages['synonym_of']
-        # print(len(synonym_of))
+        instance_of = pages['instance_of']
+        print(len(instance_of))
+        subclass_of = pages['subclass_of']
+        print(len(subclass_of))
+        synonym_of = pages['synonym_of']
+        print(len(synonym_of))
+
+        json.dump(pages, open('pages.json', 'w'))
