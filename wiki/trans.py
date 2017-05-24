@@ -1,32 +1,48 @@
 # coding=utf-8
-
-ptitles = {}
-ctitles = {}
-langs = {}
-xlore = {}
-zh_lans = ['zh-cn', 'zh', 'zh-tw']
+import json
 
 
-def trans_to_zh(titles, langs, title):
+def trans_from_xlore(xlore, title):
+    return xlore.get(title, '')
+
+
+def trans_from_wiki_links(titles, link_langs, title):
     pid = titles.get(title, '')
     if not pid:
         return ''
-    zhs = langs.get(pid, {})
-    for lan in zh_lans:
-        if lan in zhs:
-            return zhs[lan]
-    return ''
+    return link_langs.get(pid, '')
+
+
+def trans_from_wikidata(wikidata, title):
+    return wikidata.get(title, '')
+
+
+def transfer_title(xlore, ptitles, ctitles, link_langs, wikidata, title):
+    trans = trans_from_xlore(xlore, title)
+    if trans:
+        return trans
+
+    ptitle = trans_from_wiki_links(ptitles, link_langs, title)
+    if ptitle:
+        return ptitle
+
+    ctitle = trans_from_wiki_links(ctitles, link_langs, title)
+    if ctitle:
+        return ctitle
+
+    return trans_from_wikidata(wikidata, title)
 
 
 def transfer(title):
-    if title in xlore:
-        return xlore[title]
-    ptitle = trans_to_zh(ptitles, langs, title)
-    if ptitle:
-        return ptitle
-    else:
-        return trans_to_zh(ctitles, langs, title)
+    return transfer_title(xlore, ptitles, ctitles, langlinks, wikidata, title)
 
+
+xlore = json.load(open('xlore.json'))
+titles = json.load(open('titles.json'))
+ptitles = titles['0']
+ctitles = titles['14']
+langlinks = json.load(open('en_to_zh_langlinks.json'))
+wikidata = json.load(open('en_to_zh_wikidata.json'))
 
 pi = 0
 for k in ptitles:
@@ -40,50 +56,8 @@ for k in ctitles:
     if trans:
         ci += 1
 
-# pi: 424315; ci: 102984
+print(pi, ci)
 
-### wikidata languages; labels/entities;
-en_lans = ['en', 'en-gb', 'en-ca']
-zh_lans = ['zh-cn', 'zh-hans', 'zh', 'zh-hant', 'zh-tw', 'zh-hk', 'zh-sg', 'zh-mo']
-
-labels = {}
-
-
-def extract_title(title):
-    if ':' in title:
-        return title.split(':')[1].strip()
-    else:
-        return title
-
-
-def en_label(item_labels):
-    for lan in en_lans:
-        if lan in item_labels:
-            return item_labels[lan]
-    return ''
-
-
-def zh_label(item_labels):
-    for lan in zh_lans:
-        if lan in item_labels:
-            return item_labels[lan]
-    return ''
-
-
-def en_zh_labels():
-    en_zh = {}
-    for item_id in labels:
-        item_labels = labels[item_id]['labels']
-        enlabel = en_label(item_labels)
-        zhlabel = zh_label(item_labels)
-        if enlabel and zhlabel:
-            if ':' not in enlabel or enlabel.startswith('Category:'):
-                enlabel = extract_title(enlabel)
-                zhlabel = extract_title(zhlabel)
-            if enlabel[0].islower():
-                enlabel = enlabel[0].upper() + enlabel[1:]
-            en_zh[enlabel] = zhlabel
-    return en_zh
-
-en_zh = en_zh_labels()
-# 912071
+# xlore: 424315 102984
+# add langlinks: 577739 159577
+# add wikidata: 820460 171294

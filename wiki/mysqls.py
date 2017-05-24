@@ -38,5 +38,5 @@ for i in langs:
             langs_zh[i] = extract_title(zhlans[lan])
             break
 
-json.dump(langs, open('en_langs.json', 'w'), ensure_ascii=False)
-json.dump(langs_zh, open('en_langs_zh.json', 'w'), ensure_ascii=False)
+json.dump(langs, open('en_langlinks.json', 'w'), ensure_ascii=False)
+json.dump(langs_zh, open('en_to_zh_langlinks.json', 'w'), ensure_ascii=False)
