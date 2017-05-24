@@ -2,6 +2,14 @@
 import json
 
 
+def capitalized(s):
+    return s == s.capitalize()
+
+
+def titled(s):
+    return s == s.title()
+
+
 def trans_from_xlore(xlore, title):
     return xlore.get(title, '')
 
@@ -44,19 +52,19 @@ ctitles = titles['14']
 langlinks = json.load(open('en_to_zh_langlinks.json'))
 wikidata = json.load(open('en_to_zh_wikidata.json'))
 
-pi = 0
+ptrans = {}
 for k in ptitles:
     trans = translate(k)
     if trans:
-        pi += 1
+        ptrans[k.lower()] = {'en': k, 'zh': trans}
 
-ci = 0
+ctrans = {}
 for k in ctitles:
     trans = translate(k)
     if trans:
-        ci += 1
+        ctrans[k.lower()] = {'en': k, 'zh': trans}
 
-print(pi, ci)
+print(len(ptrans), len(ctrans))
 
 # xlore: 424315 102984
 # add langlinks: 577739 159577
