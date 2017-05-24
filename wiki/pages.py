@@ -1,5 +1,6 @@
 # coding=utf-8
 
+import glob
 import json
 import re
 import xml.etree.ElementTree as etree
@@ -18,16 +19,15 @@ ns_list = [NS_PAGE, NS_CAT]
 RE_CAT = re.compile(r'\[\[(Category|分類):(.+?)\]\]', re.U)
 
 
-def fixtag(tag, ns=''):
-    return '{' + nsmap[ns] + '}' + tag
+class Page(object):
+    def __init__(self, ns, pid, title):
+        self.ns = ns
+        self.pid = pid
+        self.title = title
 
 
-def xpath(tags):
-    if not isinstance(tags, (list, tuple)):
-        tags = [tags]
-
-    prefix_added = [fixtag(tag) for tag in tags]
-    return '/'.join(prefix_added)
+def dump_to_json(obj, fname):
+    json.dump(obj, open(fname, 'w'), ensure_ascii=False)
 
 
 def extract_cat_title(cat):
@@ -38,78 +38,142 @@ def clean_title(title):
     return extract_cat_title(title) if ':' in title else title
 
 
-def extract_categories(fname, n=10000):
-    categories = {}
-    i = 0
-    for event, elem in etree.iterparse(fname, events=('end',)):
-        i += 1
-        if elem.tag == fixtag('page'):
-            ns = elem.find(xpath('ns')).text
-            if ns not in [NS_CAT]:
+def pages(input):
+    """
+    Scans input extracting pages.
+    """
+    page = []
+    in_page = False
+    for line in input:
+        if not in_page:
+            striped = line.strip()
+            if striped == '<page>':
+                in_page = True
+                page.append(line)
+            else:
                 continue
-
-            title = elem.find(xpath('title')).text
-            print(title)
-            pid = elem.find(xpath('id')).text
-            categories[extract_cat_title(title)] = pid
-
-            # THIS is REQUIRED
-            elem.clear()
-
-        if i >= n:
-            break
-
-    return categories
+        else:
+            page.append(line)
+            striped = line.strip()
+            if striped == '</page>':
+                yield page
+                page = []
+                in_page = False
 
 
-def extract_pages(fname, categories, n=10000):
+def extract_page(categories, page_text):
+    inst_of = []
+    subcls_of = []
+    redirect_to = None
+
+    page = etree.fromstring(page_text)
+    ns = page.find('ns').text
+    if ns not in ns_list:
+        return None
+
+    title = page.find('title').text
+    if ns == NS_CAT:
+        title = extract_cat_title(title)
+    # pid = page.find('id').text
+
+    redirect = page.find('redirect')
+    if redirect is not None:
+        redirect_to = clean_title(redirect.attrib['title'])
+
+    rev = page.find('revision')
+    text = rev.find('text').text
+    cats = RE_CAT.findall(text) if text else []
+    cats = [c.split('|')[0].strip() for label, c in cats]
+    if ns == NS_PAGE:
+        inst_of = [c for c in cats if c in categories]
+    elif ns == NS_CAT:
+        subcls_of = [c for c in cats if c in categories]
+
+    page.clear()
+
+    return (title, (inst_of, subcls_of, redirect_to))
+
+
+def extract_title(page_text):
+    page = etree.fromstring(page_text)
+    ns = page.find('ns').text
+    if ns not in ns_list:
+        return None
+
+    title = page.find('title').text
+    if ns == NS_CAT:
+        title = extract_cat_title(title)
+    pid = page.find('id').text
+
+    page.clear()
+
+    return Page(ns, pid, title)
+
+
+def extract_titles(batch=1000):
+    with open(source) as f:
+        titles = defaultdict(dict)
+        for page_lines in pages(f):
+            page_text = ''.join(page_lines)
+
+            page = extract_title(page_text)
+            if page:
+                titles[page.ns][page.title] = page.pid
+
+                if page.ns == NS_PAGE and len(titles[NS_PAGE]) % batch == 0:
+                    print(len(titles[NS_PAGE]))
+
+        print(len(titles[NS_PAGE]))
+        dump_to_json(titles, 'titles.json')
+
+
+def extract_pages(categories, batch=1000):
     inst_of = defaultdict(list)
     subcls_of = defaultdict(list)
     redirects = defaultdict()
 
-    i = 0
-    for event, elem in etree.iterparse(fname, events=('end',)):
-        i += 1
-        if elem.tag == fixtag('page'):
-            ns = elem.find(xpath('ns')).text
-            if ns not in ns_list:
-                continue
+    with open(source) as f:
+        for page_lines in pages(f):
+            page_text = ''.join(page_lines)
+            page_rel = extract_page(categories, page_text)
+            if page_rel:
+                title, rel = page_rel
+                inst, subcls, redirect_to = rel
+                if inst:
+                    inst_of[title] = inst
+                if subcls:
+                    subcls_of[title] = subcls
+                if redirect_to:
+                    redirects[title] = redirect_to
 
-            title = elem.find(xpath('title')).text
-            if ns == NS_CAT:
-                title = extract_cat_title(title)
-            # pid = elem.find(xpath('id')).text
+                if (len(subcls_of) + len(inst_of)) % batch == 0:
+                    print(len(subcls_of) + len(inst_of))
 
-            redirect = elem.find(xpath('redirect'))
-            if redirect is not None:
-                redirects[title] = clean_title(redirect.attrib['title'])
+        print(len(subcls_of) + len(inst_of))
+        obj = {'instance_of': inst_of,
+               'subclass_of': subcls_of,
+               'synonym_of': redirects}
+        dump_to_json(obj, 'pages.json')
 
-            rev = elem.find(xpath('revision'))
-            text = rev.find(xpath('text')).text
-            cats = RE_CAT.findall(text) if text else []
-            cats = [c.split('|')[0].strip() for label, c in cats]
-            if ns == NS_PAGE:
-                for c in cats:
-                    if c in categories:
-                        inst_of[title].append(c)
-            elif ns == NS_CAT:
-                for c in cats:
-                    if c in categories:
-                        subcls_of[title].append(c)
 
-            # THIS is REQUIRED
-            elem.clear()
+def find_titles(title, batch=1000):
+    with open(source) as f:
+        for page_lines in pages(f):
+            page_text = ''.join(page_lines)
+            page = extract_title(page_text)
+            if page and title in page.title:
+                print(page)
+                print(page_text)
+                print('\n' * 2)
 
-        if i >= n:
-            break
 
-    return {"instance_of": inst_of,
-            "subclass_of": subcls_of,
-            "synonym_of": redirects}
+def check_page_count():
+    with open(source) as f:
+        assert len(list(pages(f))) == 65556
 
 
 if __name__ == '__main__':
-    extract_cats = True
+    extract_cats = False
     source = 'zh_classicalwiki-20170501.xml'
     if len(sys.argv) == 2:
         source = sys.argv[1]
@@ -120,19 +184,11 @@ if __name__ == '__main__':
     print(extract_cats)
     print(source)
 
+    # check_page_count()
+
     if extract_cats:
-        categories = extract_categories(source, n=10**10)
-        print(len(categories))
-        json.dump(categories, open('cats.json', 'w'))
+        extract_titles(1000 * 100)
     else:
-        categories = json.load(open('cats.json'))
-        pages = extract_pages(source, categories, n=10**10)
-
-        instance_of = pages['instance_of']
-        print(len(instance_of))
-        subclass_of = pages['subclass_of']
-        print(len(subclass_of))
-        synonym_of = pages['synonym_of']
-        print(len(synonym_of))
-
-        json.dump(pages, open('pages.json', 'w'))
+        titles = json.load(open('titles.json'))
+        categories = titles[NS_CAT]
+        extract_pages(categories, batch=1000 * 100)

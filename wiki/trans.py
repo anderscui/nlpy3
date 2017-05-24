@@ -17,7 +17,7 @@ def trans_from_wikidata(wikidata, title):
     return wikidata.get(title, '')
 
 
-def transfer_title(xlore, ptitles, ctitles, link_langs, wikidata, title):
+def translate_title(xlore, ptitles, ctitles, link_langs, wikidata, title):
     trans = trans_from_xlore(xlore, title)
     if trans:
         return trans
@@ -33,8 +33,8 @@ def transfer_title(xlore, ptitles, ctitles, link_langs, wikidata, title):
     return trans_from_wikidata(wikidata, title)
 
 
-def transfer(title):
-    return transfer_title(xlore, ptitles, ctitles, langlinks, wikidata, title)
+def translate(title):
+    return translate_title(xlore, ptitles, ctitles, langlinks, wikidata, title)
 
 
 xlore = json.load(open('xlore.json'))
@@ -46,13 +46,13 @@ wikidata = json.load(open('en_to_zh_wikidata.json'))
 
 pi = 0
 for k in ptitles:
-    trans = transfer(k)
+    trans = translate(k)
     if trans:
         pi += 1
 
 ci = 0
 for k in ctitles:
-    trans = transfer(k)
+    trans = translate(k)
     if trans:
         ci += 1
 
