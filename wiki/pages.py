@@ -12,6 +12,8 @@ nsmap = {'': 'http://www.mediawiki.org/xml/export-0.10/',
 
 NS_CAT = '14'
 NS_PAGE = '0'
+NS_TEMPLATE = '10'
+NS_MODULE = '828'
 ns_list = [NS_PAGE, NS_CAT]
 
 # [[Category:自然科學]]
