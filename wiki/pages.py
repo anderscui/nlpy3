@@ -16,16 +16,17 @@ ns_list = [NS_PAGE, NS_CAT]
 
 # [[Category:自然科學]]
 RE_CAT = re.compile(r'\[\[(Category|分類):(.+?)\]\]', re.U)
-DISAM = '{{disambiguation}}'
+DISAM = ['{{disambiguation}}', '{{disambig}}']
 
 
 class Page(object):
-    def __init__(self, ns, pid, title, redirect_to=None, cats=None):
+    def __init__(self, ns, pid, title, redirect_to=None, cats=None, is_disam=False):
         self.ns = ns
         self.pid = pid
         self.title = title
         self.redirect_to = redirect_to
         self.cats = cats
+        self.is_disam = is_disam
 
     def is_page(self):
         return self.ns == NS_PAGE
@@ -81,107 +82,66 @@ def extract_item(page_text):
         return 1
 
 
-def extract_title(page_text):
-    page = etree.fromstring(page_text)
-    ns = page.find('ns').text
-    if ns not in ns_list:
-        return None
-
-    title = page.find('title').text
-    if ns == NS_CAT:
-        title = extract_cat_title(title)
-    pid = page.find('id').text
-    redirect = page.find('redirect')
-    redirect_to = None
-    if redirect is not None:
-        redirect_to = clean_title(redirect.attrib['title'])
-
-    page.clear()
-
-    return Page(ns, pid, title, redirect_to)
-
-
-def extract_titles(batch=1000):
-    with open(source) as f:
-        titles = defaultdict(dict)
-        synonyms = defaultdict(dict)
-        for page_lines in pages(f):
-            page_text = ''.join(page_lines)
-            page = extract_title(page_text)
-            if page:
-                titles[page.ns][page.title] = page.pid
-                if page.redirected():
-                    synonyms[page.ns][page.title] = page.redirect_to
-
-                if page.is_page() and len(titles[NS_PAGE]) % batch == 0:
-                    print(len(titles[NS_PAGE]))
-
-        print(len(titles[NS_PAGE]))
-        print(len(titles[NS_CAT]))
-        print(len(synonyms[NS_PAGE]))
-        dump_to_json(titles, 'titles.json')
-        dump_to_json(synonyms, 'synonyms.json')
-
-
-def extract_page(categories, page_text):
+def extract_wiki_item(page_text):
     page_xml = etree.fromstring(page_text)
     ns = page_xml.find('ns').text
     if ns not in ns_list:
-        return None
-
-    redirect = page_xml.find('redirect')
-    if redirect is not None:
         return None
 
     title = page_xml.find('title').text
     if ns == NS_CAT:
         title = extract_cat_title(title)
     pid = page_xml.find('id').text
+    redirect = page_xml.find('redirect')
+    redirect_to = None
+    if redirect is not None:
+        redirect_to = clean_title(redirect.attrib['title'])
 
     rev = page_xml.find('revision')
     text = rev.find('text').text
-    cats = RE_CAT.findall(text) if text else []
+    if text is None:
+        return None
+
+    cats = RE_CAT.findall(text)
     cats = [c.split('|')[0].strip() for label, c in cats]
+    is_disam = any(disam in text for disam in DISAM)
 
     page_xml.clear()
 
-    page = Page(ns, pid, title, cats=[c for c in cats if c in categories])
+    page = Page(ns, int(pid), title, redirect_to, cats, is_disam)
     return page
 
 
-def extract_pages(categories, batch=1000):
-    synonyms = json.load(open('synonyms.json'))
-    syn_cats = synonyms[NS_CAT]
-    print(len(syn_cats))
-
-    inst_of = defaultdict(list)
-    subcls_of = defaultdict(list)
+def extract_wiki_items(batch=1000):
+    items = defaultdict(dict)
 
     with open(source) as f:
         for page_lines in pages(f):
             page_text = ''.join(page_lines)
-            page = extract_page(categories, page_text)
-            if page:
-                title = page.title
-                cats = page.cats
+            item = extract_wiki_item(page_text)
+            if not item:
+                continue
 
-                for c in cats:
-                    if c in syn_cats:
-                        print(c)
+            cats = item.cats
 
-                if cats:
-                    if page.is_page():
-                        inst_of[title] = cats
-                    elif page.is_category():
-                        subcls_of[title] = cats
+            obj = {'title': item.title}
+            if cats:
+                if item.is_page():
+                    obj['inst_of'] = cats
+                elif item.is_category():
+                    obj['subcls_of'] = cats
+            if item.redirected():
+                obj['redirect_to'] = item.redirect_to
+            if item.is_disam:
+                obj['is_disam'] = True
 
-                if (len(subcls_of) + len(inst_of)) % batch == 0:
-                    print(len(subcls_of) + len(inst_of))
+            items[item.ns][item.pid] = obj
 
-        print(len(subcls_of) + len(inst_of))
-        result = {'instance_of': inst_of,
-                  'subclass_of': subcls_of}
-        dump_to_json(result, 'pages.json')
+            if (len(items[NS_PAGE]) + len(items[NS_CAT])) % batch == 0:
+                print(len(items[NS_PAGE]) + len(items[NS_CAT]))
+
+        print(len(items[NS_PAGE]) + len(items[NS_CAT]))
+        dump_to_json(items, 'items.json')
 
 
 def find_titles(title, batch=1000 * 100):
@@ -224,7 +184,10 @@ if __name__ == '__main__':
     # main-titles: 6427217
     # synonyms: 7778441, csyn: 73
 
-    extract_cats = False
+    # round 2
+    # items: 14766690
+
+    extract_cats = True
     source = 'zh_classicalwiki-20170501.xml'
     if len(sys.argv) == 2:
         source = sys.argv[1]
@@ -240,8 +203,8 @@ if __name__ == '__main__':
 
     if extract_cats:
         # extract_titles(1000 * 100)
-        find_titles('Calyx')
+        extract_wiki_items(1000 * 100)
     else:
         titles = json.load(open('titles.json'))
         categories = titles[NS_CAT]
-        extract_pages(categories, batch=1000 * 100)
+        # extract_pages(categories, batch=1000 * 100)
