@@ -1,5 +1,61 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
+# =============================================================================
+#  Version: 2.75 (March 4, 2017)
+#  Author: Giuseppe Attardi (attardi@di.unipi.it), University of Pisa
+#
+#  Contributors:
+#   Antonio Fuschetto (fuschett@aol.com)
+#   Leonardo Souza (lsouza@amtera.com.br)
+#   Juan Manuel Caicedo (juan@cavorite.com)
+#   Humberto Pereira (begini@gmail.com)
+#   Siegfried-A. Gevatter (siegfried@gevatter.com)
+#   Pedro Assis (pedroh2306@gmail.com)
+#   Wim Muskee (wimmuskee@gmail.com)
+#   Radics Geza (radicsge@gmail.com)
+#   orangain (orangain@gmail.com)
+#   Seth Cleveland (scleveland@turnitin.com)
+#   Bren Barn
+#
+# =============================================================================
+#  Copyright (c) 2011-2017. Giuseppe Attardi (attardi@di.unipi.it).
+# =============================================================================
+#  This file is part of Tanl.
+#
+#  Tanl is free software; you can redistribute it and/or modify it
+#  under the terms of the GNU General Public License, version 3,
+#  as published by the Free Software Foundation.
+#
+#  Tanl is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License at <http://www.gnu.org/licenses/> for more details.
+#
+# =============================================================================
+
+"""Wikipedia Extractor:
+Extracts and cleans text from a Wikipedia database dump and stores output in a
+number of files of similar size in a given directory.
+Each file will contain several documents in the format:
+
+    <doc id="" revid="" url="" title="">
+        ...
+        </doc>
+
+If the program is invoked with the --json flag, then each file will
+contain several documents formatted as json ojects, one per line, with
+the following structure
+
+    {"id": "", "revid": "", "url":"", "title": "", "text": "..."}
+
+Template expansion requires preprocesssng first the whole dump and
+collecting template definitions.
+
+"""
+
+from __future__ import unicode_literals, division
+
 import sys
 import argparse
 import bz2
@@ -11,17 +67,36 @@ import os.path
 import re  # TODO use regex when it will be standard
 import time
 import json
-from collections import defaultdict
 from io import StringIO
 from multiprocessing import Queue, Process, Value, cpu_count
 from timeit import default_timer
 
 
-from urllib.parse import quote
-from html.entities import name2codepoint
-from itertools import zip_longest
-from types import SimpleNamespace
-text_type = str
+PY2 = sys.version_info[0] == 2
+# Python 2.7 compatibiity
+if PY2:
+    from urllib import quote
+    from htmlentitydefs import name2codepoint
+    from itertools import izip as zip, izip_longest as zip_longest
+    range = xrange  # Use Python 3 equivalent
+    chr = unichr    # Use Python 3 equivalent
+    text_type = unicode
+    
+    class SimpleNamespace(object):
+        def __init__ (self, **kwargs):
+            self.__dict__.update(kwargs)
+        def __repr__ (self):
+            keys = sorted(self.__dict__)
+            items = ("{}={!r}".format(k, self.__dict__[k]) for k in keys)
+            return "{}({})".format(type(self).__name__, ", ".join(items))
+        def __eq__ (self, other):
+            return self.__dict__ == other.__dict__
+else:
+    from urllib.parse import quote
+    from html.entities import name2codepoint
+    from itertools import zip_longest
+    from types import SimpleNamespace
+    text_type = str
 
 
 # ===========================================================================
@@ -125,12 +200,6 @@ options = SimpleNamespace(
     ],
 )
 
-NS_CAT = '14'
-NS_PAGE = '0'
-NS_TEMPLATE = '10'
-NS_MODULE = '828'
-NS_LIST = [NS_PAGE, NS_CAT]
-
 ##
 # Keys for Template and Module namespaces
 templateKeys = set(['10', '828'])
@@ -142,7 +211,7 @@ filter_disambig_page_pattern = re.compile("{{disambig(uation)?(\|[^}]*)?}}")
 ##
 # page filtering logic -- remove templates, undesired xml namespaces, and disambiguation pages
 def keepPage(ns, page):
-    if ns not in {NS_PAGE, NS_CAT}:               # Aritcle
+    if ns != '0':               # Aritcle
         return False
     # remove disambig pages if desired
     if options.filter_disambig_pages:
@@ -154,9 +223,6 @@ def keepPage(ns, page):
 
 def get_url(uid):
     return "%s?curid=%s" % (options.urlbase, uid)
-
-
-RE_REDIRECT = re.compile('title="(.+?)"', re.U)
 
 
 # =========================================================================
@@ -511,14 +577,17 @@ class Extractor(object):
                 out.write('\n')
             out.write(footer)
 
-    def extract(self):
-        # logging.info('%s\t%s', self.id, self.title)
+    def extract(self, out):
+        """
+        :param out: a memory file.
+        """
+        logging.info('%s\t%s', self.id, self.title)
         
         # Separate header from text with a newline.
-        # if options.toHTML:
-        #     title_str = '<h1>' + self.title + '</h1>'
-        # else:
-        #     title_str = self.title + '\n'
+        if options.toHTML:
+            title_str = '<h1>' + self.title + '</h1>'
+        else:
+            title_str = self.title + '\n'
         # https://www.mediawiki.org/wiki/Help:Magic_words
         colon = self.title.find(':')
         if colon != -1:
@@ -558,13 +627,14 @@ class Extractor(object):
         # $text = $frame->expand( $dom );
         #
         text = self.transform(text)
-        # print(text)
-        # text = self.wiki2text(text)
-        # text = compact(self.clean(text))
-        # text = [title_str] + text
+        text = self.wiki2text(text)
+        text = compact(self.clean(text))
+        text = [title_str] + text
 
-        # if sum(len(line) for line in text) < options.min_text_length:
-        #     return
+        if sum(len(line) for line in text) < options.min_text_length:
+            return
+        
+        self.write_output(out, text)
         
         errs = (self.template_title_errs,
                 self.recursion_exceeded_1_errs,
@@ -574,8 +644,6 @@ class Extractor(object):
             logging.warn("Template errors in article '%s' (%s): title(%d) recursion(%d, %d, %d)",
                          self.title, self.id, *errs)
 
-        return text
-        # return '\n'.join(text)
 
     def transform(self, wikitext):
         """
@@ -640,7 +708,7 @@ class Extractor(object):
         text = text.replace("'''", '').replace("''", '"')
 
         # replace internal links
-        # text = replaceInternalLinks(text)
+        text = replaceInternalLinks(text)
 
         # replace external links
         text = replaceExternalLinks(text)
@@ -2058,6 +2126,271 @@ def replaceInternalLinks(text):
     return res + text[cur:]
 
 
+# the official version is a method in class Parser, similar to this:
+# def replaceInternalLinks2(text):
+#     global wgExtraInterlanguageLinkPrefixes
+
+#     # the % is needed to support urlencoded titles as well
+#     tc = Title::legalChars() + '#%'
+#     # Match a link having the form [[namespace:link|alternate]]trail
+#     e1 = re.compile("([%s]+)(?:\\|(.+?))?]](.*)" % tc, re.S | re.D)
+#     # Match cases where there is no "]]", which might still be images
+#     e1_img = re.compile("([%s]+)\\|(.*)" % tc, re.S | re.D)
+
+#     holders = LinkHolderArray(self)
+
+#     # split the entire text string on occurrences of [[
+#     iterBrackets = re.compile('[[').finditer(text)
+
+#     m in iterBrackets.next()
+#     # get the first element (all text up to first [[)
+#     s = text[:m.start()]
+#     cur = m.end()
+
+#     line = s
+
+#     useLinkPrefixExtension = self.getTargetLanguage().linkPrefixExtension()
+#     e2 = None
+#     if useLinkPrefixExtension:
+#         # Match the end of a line for a word that is not followed by whitespace,
+#         # e.g. in the case of "The Arab al[[Razi]]",  "al" will be matched
+#         global wgContLang
+#         charset = wgContLang.linkPrefixCharset()
+#         e2 = re.compile("((?>.*[^charset]|))(.+)", re.S | re.D | re.U)
+
+#     if self.mTitle is None:
+#         raise MWException(__METHOD__ + ": \self.mTitle is null\n")
+
+#     nottalk = not self.mTitle.isTalkPage()
+
+#     if useLinkPrefixExtension:
+#         m = e2.match(s)
+#         if m:
+#             first_prefix = m.group(2)
+#         else:
+#             first_prefix = false
+#     else:
+#         prefix = ''
+
+#     useSubpages = self.areSubpagesAllowed()
+
+#     for m in iterBrackets:
+#         line = text[cur:m.start()]
+#         cur = m.end()
+
+#         # TODO: Check for excessive memory usage
+
+#         if useLinkPrefixExtension:
+#             m = e2.match(e2)
+#             if m:
+#                 prefix = m.group(2)
+#                 s = m.group(1)
+#             else:
+#                 prefix = ''
+#             # first link
+#             if first_prefix:
+#                 prefix = first_prefix
+#                 first_prefix = False
+
+#         might_be_img = False
+
+#         m = e1.match(line)
+#         if m: # page with normal label or alt
+#             label = m.group(2)
+#             # If we get a ] at the beginning of m.group(3) that means we have a link that is something like:
+#             # [[Image:Foo.jpg|[http://example.com desc]]] <- having three ] in a row fucks up,
+#             # the real problem is with the e1 regex
+#             # See bug 1300.
+#             #
+#             # Still some problems for cases where the ] is meant to be outside punctuation,
+#             # and no image is in sight. See bug 2095.
+#             #
+#             if label and m.group(3)[0] == ']' and '[' in label:
+#                 label += ']' # so that replaceExternalLinks(label) works later
+#                 m.group(3) = m.group(3)[1:]
+#             # fix up urlencoded title texts
+#             if '%' in m.group(1):
+#                 # Should anchors '#' also be rejected?
+#                 m.group(1) = str_replace(array('<', '>'), array('&lt', '&gt'), rawurldecode(m.group(1)))
+#             trail = m.group(3)
+#         else:
+#             m = e1_img.match(line):
+#             if m:
+#                 # Invalid, but might be an image with a link in its caption
+#                 might_be_img = true
+#                 label = m.group(2)
+#                 if '%' in m.group(1):
+#                     m.group(1) = rawurldecode(m.group(1))
+#                 trail = ""
+#             else:		# Invalid form; output directly
+#                 s += prefix + '[[' + line
+#                 continue
+
+#         origLink = m.group(1)
+
+#         # Dont allow internal links to pages containing
+#         # PROTO: where PROTO is a valid URL protocol these
+#         # should be external links.
+#         if (preg_match('/^(?i:' + self.mUrlProtocols + ')/', origLink)) {
+#             s += prefix + '[[' + line
+#             continue
+#         }
+
+#         # Make subpage if necessary
+#         if useSubpages:
+#             link = self.maybeDoSubpageLink(origLink, label)
+#         else:
+#             link = origLink
+
+#         noforce = origLink[0] != ':'
+#         if not noforce:
+#             # Strip off leading ':'
+#             link = link[1:]
+
+#         nt = Title::newFromText(self.mStripState.unstripNoWiki(link))
+#         if nt is None:
+#             s += prefix + '[[' + line
+#             continue
+
+#         ns = nt.getNamespace()
+#         iw = nt.getInterwiki()
+
+#         if might_be_img {	# if this is actually an invalid link
+#             if (ns == NS_FILE and noforce) { # but might be an image
+#                 found = False
+#                 while True:
+#                     # look at the next 'line' to see if we can close it there
+#                     next_line = iterBrakets.next()
+#                     if not next_line:
+#                         break
+#                     m = explode(']]', next_line, 3)
+#                     if m.lastindex == 3:
+#                         # the first ]] closes the inner link, the second the image
+#                         found = True
+#                         label += "[[%s]]%s" % (m.group(0), m.group(1))
+#                         trail = m.group(2)
+#                         break
+#                     elif m.lastindex == 2:
+#                         # if there is exactly one ]] that is fine, we will keep looking
+#                         label += "[[{m[0]}]]{m.group(1)}"
+#                     else:
+#                         # if next_line is invalid too, we need look no further
+#                         label += '[[' + next_line
+#                         break
+#                 if not found:
+#                     # we couldnt find the end of this imageLink, so output it raw
+#                     # but dont ignore what might be perfectly normal links in the text we ve examined
+#                     holders.merge(self.replaceInternalLinks2(label))
+#                     s += "{prefix}[[%s|%s" % (link, text)
+#                     # note: no trail, because without an end, there *is* no trail
+#                     continue
+#             } else: # it is not an image, so output it raw
+#                 s += "{prefix}[[%s|%s" % (link, text)
+#                 # note: no trail, because without an end, there *is* no trail
+#                      continue
+#         }
+
+#         wasblank = (text == '')
+#         if wasblank:
+#             text = link
+#         else:
+#             # Bug 4598 madness.  Handle the quotes only if they come from the alternate part
+#             # [[Lista d''e paise d''o munno]] . <a href="...">Lista d''e paise d''o munno</a>
+#             # [[Criticism of Harry Potter|Criticism of ''Harry Potter'']]
+#             #    . <a href="Criticism of Harry Potter">Criticism of <i>Harry Potter</i></a>
+#             text = self.doQuotes(text)
+
+#         # Link not escaped by : , create the various objects
+#         if noforce and not nt.wasLocalInterwiki():
+#             # Interwikis
+#             if iw and mOptions.getInterwikiMagic() and nottalk and (
+#                     Language::fetchLanguageName(iw, None, 'mw') or
+#                     in_array(iw, wgExtraInterlanguageLinkPrefixes)):
+#                 # Bug 24502: filter duplicates
+#                 if iw not in mLangLinkLanguages:
+#                     self.mLangLinkLanguages[iw] = True
+#                     self.mOutput.addLanguageLink(nt.getFullText())
+
+#                 s = rstrip(s + prefix)
+#                 s += strip(trail, "\n") == '' ? '': prefix + trail
+#                 continue
+
+#             if ns == NS_FILE:
+#                 if not wfIsBadImage(nt.getDBkey(), self.mTitle):
+#                     if wasblank:
+#                         # if no parameters were passed, text
+#                         # becomes something like "File:Foo.png",
+#                         # which we dont want to pass on to the
+#                         # image generator
+#                         text = ''
+#                     else:
+#                         # recursively parse links inside the image caption
+#                         # actually, this will parse them in any other parameters, too,
+#                         # but it might be hard to fix that, and it doesnt matter ATM
+#                         text = self.replaceExternalLinks(text)
+#                         holders.merge(self.replaceInternalLinks2(text))
+#                     # cloak any absolute URLs inside the image markup, so replaceExternalLinks() wont touch them
+#                     s += prefix + self.armorLinks(
+#                         self.makeImage(nt, text, holders)) + trail
+#                 else:
+#                     s += prefix + trail
+#                 continue
+
+#             if ns == NS_CATEGORY:
+#                 s = rstrip(s + "\n") # bug 87
+
+#                 if wasblank:
+#                     sortkey = self.getDefaultSort()
+#                 else:
+#                     sortkey = text
+#                 sortkey = Sanitizer::decodeCharReferences(sortkey)
+#                 sortkey = str_replace("\n", '', sortkey)
+#                 sortkey = self.getConverterLanguage().convertCategoryKey(sortkey)
+#                 self.mOutput.addCategory(nt.getDBkey(), sortkey)
+
+#                 s += strip(prefix + trail, "\n") == '' ? '' : prefix + trail
+
+#                 continue
+#             }
+#         }
+
+#         # Self-link checking. For some languages, variants of the title are checked in
+#         # LinkHolderArray::doVariants() to allow batching the existence checks necessary
+#         # for linking to a different variant.
+#         if ns != NS_SPECIAL and nt.equals(self.mTitle) and !nt.hasFragment():
+#             s += prefix + Linker::makeSelfLinkObj(nt, text, '', trail)
+#                  continue
+
+#         # NS_MEDIA is a pseudo-namespace for linking directly to a file
+#         # @todo FIXME: Should do batch file existence checks, see comment below
+#         if ns == NS_MEDIA:
+#             # Give extensions a chance to select the file revision for us
+#             options = []
+#             descQuery = False
+#             Hooks::run('BeforeParserFetchFileAndTitle',
+#                        [this, nt, &options, &descQuery])
+#             # Fetch and register the file (file title may be different via hooks)
+#             file, nt = self.fetchFileAndTitle(nt, options)
+#             # Cloak with NOPARSE to avoid replacement in replaceExternalLinks
+#             s += prefix + self.armorLinks(
+#                 Linker::makeMediaLinkFile(nt, file, text)) + trail
+#             continue
+
+#         # Some titles, such as valid special pages or files in foreign repos, should
+#         # be shown as bluelinks even though they are not included in the page table
+#         #
+#         # @todo FIXME: isAlwaysKnown() can be expensive for file links; we should really do
+#         # batch file existence checks for NS_FILE and NS_MEDIA
+#         if iw == '' and nt.isAlwaysKnown():
+#             self.mOutput.addLink(nt)
+#             s += self.makeKnownLinkHolder(nt, text, array(), trail, prefix)
+#         else:
+#             # Links will be added to the output link list after checking
+#             s += holders.makeHolder(nt, text, array(), trail, prefix)
+#     }
+#     return holders
+
+
 def makeInternalLink(title, label):
     colon = title.find(':')
     if colon > 0 and title[:colon] not in options.acceptedNamespaces:
@@ -2172,10 +2505,6 @@ listOpen = {'*': '<ul>', '#': '<ol>', ';': '<dl>', ':': '<dl>'}
 listClose = {'*': '</ul>', '#': '</ol>', ';': '</dl>', ':': '</dl>'}
 listItem = {'*': '<li>%s</li>', '#': '<li>%s</<li>', ';': '<dt>%s</dt>',
             ':': '<dd>%s</dd>'}
-
-# [[Category:自然科學]]
-RE_CAT = re.compile(r'\[\[(Category|分類):(.+?)\]\]', re.U)
-DISAM = ['DISAM', 'disambig']
 
 
 def compact(text):
@@ -2400,7 +2729,7 @@ def load_templates(file, output_file=None):
     if output_file:
         output = codecs.open(output_file, 'wb', 'utf-8')
     for page_count, page_data in enumerate(pages_from(file)):
-        id, revid, title, ns, page, redirect = page_data
+        id, revid, title, ns, page = page_data
         if not output_file and (not options.templateNamespace or
                                 not options.moduleNamespace):  # do not know it yet
             # reconstruct templateNamespace and moduleNamespace from the first title
@@ -2447,11 +2776,10 @@ def pages_from(input):
     last_id = None
     revid = None
     inText = False
-    redirect_to = None
+    redirect = False
     title = None
     for line in input:
-        if not isinstance(line, text_type):
-            line = line.decode('utf-8')
+        if not isinstance(line, text_type): line = line.decode('utf-8')
         if '<' not in line:  # faster than doing re.search()
             if inText:
                 page.append(line)
@@ -2462,7 +2790,7 @@ def pages_from(input):
         tag = m.group(2)
         if tag == 'page':
             page = []
-            redirect_to = None
+            redirect = False
         elif tag == 'id' and not id:
             id = m.group(3)
         elif tag == 'id' and id:
@@ -2472,8 +2800,7 @@ def pages_from(input):
         elif tag == 'ns':
             ns = m.group(3)
         elif tag == 'redirect':
-            m = RE_REDIRECT.search(line)
-            redirect_to = m.group(1)
+            redirect = True
         elif tag == 'text':
             if m.lastindex == 3 and line[m.start(3)-2] == '/': # self closing
                 # <text xml:space="preserve" />
@@ -2490,8 +2817,8 @@ def pages_from(input):
         elif inText:
             page.append(line)
         elif tag == '/page':
-            if id != last_id:
-                yield (id, revid, title, ns, page, redirect_to)
+            if id != last_id and not redirect:
+                yield (id, revid, title, ns, page)
                 last_id = id
                 ns = '0'
             id = None
@@ -2571,45 +2898,75 @@ def process_dump(input_file, template_file, out_file, file_size, file_compress,
     logging.info("Starting page extraction from %s.", input_file)
     extract_start = default_timer()
 
-    # method: extract_process
+    # Parallel Map/Reduce:
+    # - pages to be processed are dispatched to workers
+    # - a reduce process collects the results, sort them and print them.
+
+    process_count = max(1, process_count)
+    maxsize = 10 * process_count
+    # output queue
+    output_queue = Queue(maxsize=maxsize)
+
+    if out_file == '-':
+        out_file = None
+
+    worker_count = process_count
+
+    # load balancing
+    max_spool_length = 10000
+    spool_length = Value('i', 0, lock=False)
+
+    # reduce job that sorts and prints output
+    reduce = Process(target=reduce_process,
+                     args=(options, output_queue, spool_length,
+                           out_file, file_size, file_compress))
+    reduce.start()
+
+    # initialize jobs queue
+    jobs_queue = Queue(maxsize=maxsize)
+
+    # start worker processes
+    logging.info("Using %d extract processes.", worker_count)
+    workers = []
+    for i in range(worker_count):
+        extractor = Process(target=extract_process,
+                            args=(options, i, jobs_queue, output_queue))
+        extractor.daemon = True  # only live while parent process lives
+        extractor.start()
+        workers.append(extractor)
 
     # Mapper process
-    items = defaultdict(dict)
     page_num = 0
     for page_data in pages_from(input):
-        if page_num > 100000:
-            break
-
-        id, revid, title, ns, page, redirect_to = page_data
-        colon = title.find(':')
-        if colon != -1:
-            title = title[colon + 1:]
+        id, revid, title, ns, page = page_data
         if keepPage(ns, page):
+            # slow down
+            delay = 0
+            if spool_length.value > max_spool_length:
+                # reduce to 10%
+                while spool_length.value > max_spool_length/10:
+                    time.sleep(10)
+                    delay += 10
+            if delay:
+                logging.info('Delay %ds', delay)
+            job = (id, revid, title, page, page_num)
+            jobs_queue.put(job) # goes to any available extract_process
             page_num += 1
-            page_text = extract_item_text(id, revid, title, page)
-            text = ''.join(page_text)
-            # if int(id) == 73018:
-            #     print(text)
-            obj = {'title': title}
-            if redirect_to:
-                obj['red'] = redirect_to
-            if text:
-                cats = RE_CAT.findall(text)
-                cats = [c.split('|')[0].strip() for label, c in cats]
-                if cats:
-                    if ns == NS_PAGE:
-                        obj['inst_of'] = cats
-                    elif ns == NS_CAT:
-                        obj['subcls_of'] = cats
-                is_disam = any(disam in text for disam in DISAM)
-                if is_disam:
-                    obj['disam'] = True
-            items[ns][id] = obj
-        page = None
+        page = None             # free memory
 
     input.close()
 
-    json.dump(items, open('items.json', 'w'), ensure_ascii=False)
+    # signal termination
+    for _ in workers:
+        jobs_queue.put(None)
+    # wait for workers to terminate
+    for w in workers:
+        w.join()
+
+    # signal end of work to reduce process
+    output_queue.put(None)
+    # wait for it to finish
+    reduce.join()
 
     extract_duration = default_timer() - extract_start
     extract_rate = page_num / extract_duration
@@ -2641,7 +2998,7 @@ def extract_process(opts, i, jobs_queue, output_queue):
         if job:
             id, revid, title, page, page_num = job
             try:
-                e = Extractor(*job[:4]) # (id, revid, title, page)
+                e = Extractor(*job[:4])  # (id, revid, title, page)
                 page = None              # free memory
                 e.extract(out)
                 text = out.getvalue()
@@ -2656,20 +3013,6 @@ def extract_process(opts, i, jobs_queue, output_queue):
             logging.debug('Quit extractor')
             break
     out.close()
-
-
-def extract_item_text(id, revid, title, page):
-    """Pull tuples of raw page content, do CPU/regex-heavy fixup, push finished text
-    """
-    try:
-        # print(id, revid, title, page, page_num)
-        e = Extractor(id, revid, title, page)
-        page = None  # free memory
-        text = e.extract()
-    except:
-        text = ''
-        logging.exception('Processing page text error: %s %s', id, title)
-    return text
 
 
 report_period = 10000           # progress report period
@@ -2693,7 +3036,7 @@ def reduce_process(opts, output_queue, spool_length,
         nextFile = NextFile(out_file)
         output = OutputSplitter(nextFile, file_size, file_compress)
     else:
-        output = sys.stdout.buffer
+        output = sys.stdout if PY2 else sys.stdout.buffer
         if file_compress:
             logging.warn("writing to stdout, so no output compression (use an external tool)")
 
@@ -2810,9 +3153,7 @@ def main():
         options.keepLinks = True
 
     options.expand_templates = args.no_templates
-    # options.filter_disambig_pages = args.filter_disambig_pages
-    # TODO: disam
-    options.filter_disambig_pages = False
+    options.filter_disambig_pages = args.filter_disambig_pages
     options.keep_tables = args.keep_tables
 
     try:
