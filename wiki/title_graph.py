@@ -113,3 +113,25 @@ for e in take(10, g.edges_iter()):
     edge = g[e[0]][e[1]]
     if 'D' in edge:
         i += 1
+
+
+top_nodes = set()
+g2 = nx.DiGraph()
+
+
+def add_sub_nodes(n, level=1):
+    if level > 15:
+        return
+
+    for i in g.successors(n):
+        pres = g.predecessors(i)
+        if any('D' not in g[pre][i] for pre in pres):
+            g2.add_edge(n, i)
+            add_sub_nodes(i, level+1)
+
+
+def add_node(n):
+    pres = g.predecessors(n)
+    if len(pres) == 0:
+        g2.add_node(n)
+        add_sub_nodes(n)

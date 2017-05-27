@@ -1,8 +1,20 @@
 # coding=utf-8
 import re
 from types import SimpleNamespace
+import xml.etree.ElementTree as etree
+from html.entities import name2codepoint
+
 
 import logging
+
+
+NS_CAT = '14'
+NS_PAGE = '0'
+NS_TEMPLATE = '10'
+NS_MODULE = '828'
+ns_list = [NS_PAGE, NS_CAT]
+# Keys for Template and Module namespaces
+templateKeys = {'10', '828'}
 
 tagRE = re.compile(r'(.*?)<(/?\w+)[^>]*?>(?:([^<]*)(<.*?>)?)?')
 #                    1     2               3      4
@@ -102,6 +114,24 @@ options = SimpleNamespace(
 )
 
 
+class Page(object):
+    def __init__(self, ns, pid, title, redirect_to=None, text=None):
+        self.ns = ns
+        self.pid = pid
+        self.title = title
+        self.redirect_to = redirect_to
+        self.text = text
+
+    def is_page(self):
+        return self.ns == NS_PAGE
+
+    def is_category(self):
+        return self.ns == NS_CAT
+
+    def redirected(self):
+        return self.redirect_to is not None
+
+
 def load_siteinfo(source):
     with open(source) as f:
         # collect siteinfo
@@ -162,27 +192,113 @@ def extract_wiki_item(page_text):
         return None
 
     title = page_xml.find('title').text
-    if ns == NS_CAT:
-        title = extract_cat_title(title)
+    # if ns == NS_CAT:
+    #     title = extract_cat_title(title)
     pid = page_xml.find('id').text
     redirect = page_xml.find('redirect')
     redirect_to = None
     if redirect is not None:
-        redirect_to = clean_title(redirect.attrib['title'])
+        # redirect_to = clean_title(redirect.attrib['title'])
+        redirect_to = redirect.attrib['title']
 
     rev = page_xml.find('revision')
     text = rev.find('text').text
-    if text is None:
-        return None
+    # if text is None:
+    #     return None
 
-    cats = RE_CAT.findall(text)
-    cats = [c.split('|')[0].strip() for label, c in cats]
-    is_disam = any(disam in text for disam in DISAM)
+    # cats = RE_CAT.findall(text)
+    # cats = [c.split('|')[0].strip() for label, c in cats]
+    # is_disam = any(disam in text for disam in DISAM)
 
     page_xml.clear()
 
-    page = Page(ns, int(pid), title, redirect_to, cats, is_disam)
+    page = Page(ns, int(pid), title, redirect_to, text)
     return page
+
+
+def unescape(text):
+    """
+    Removes HTML or XML character references and entities from a text string.
+
+    :param text The HTML (or XML) source text.
+    :return The plain text, as a Unicode string, if necessary.
+    """
+
+    def fixup(m):
+        text = m.group(0)
+        code = m.group(1)
+        try:
+            if text[1] == "#":  # character reference
+                if text[2] == "x":
+                    return chr(int(code[1:], 16))
+                else:
+                    return chr(int(code))
+            else:  # named entity
+                return chr(name2codepoint[code])
+        except:
+            return text  # leave as is
+
+    return re.sub("&#?(\w+);", fixup, text)
+
+
+# Match HTML comments
+# The buggy template {{Template:T}} has a comment terminating with just "->"
+comment = re.compile(r'<!--.*?-->', re.DOTALL)
+
+# Extract Template definition
+reNoinclude = re.compile(r'<noinclude>(?:.*?)</noinclude>', re.DOTALL)
+reIncludeonly = re.compile(r'<includeonly>|</includeonly>', re.DOTALL)
+
+
+def define_template(title, page):
+    """
+    Adds a template defined in the :param page:.
+    @see https://en.wikipedia.org/wiki/Help:Template#Noinclude.2C_includeonly.2C_and_onlyinclude
+    """
+    # title = normalizeTitle(title)
+
+    # sanity check (empty template, e.g. Template:Crude Oil Prices))
+    if not page:
+        return
+
+    # check for redirects
+    m = re.match('#REDIRECT.*?\[\[([^\]]*)]]', page[0], re.IGNORECASE)
+    if m:
+        options.redirects[title] = m.group(1)  # normalizeTitle(m.group(1))
+        return
+
+    text = unescape(''.join(page))
+
+    # We're storing template text for future inclusion, therefore,
+    # remove all <noinclude> text and keep all <includeonly> text
+    # (but eliminate <includeonly> tags per se).
+    # However, if <onlyinclude> ... </onlyinclude> parts are present,
+    # then only keep them and discard the rest of the template body.
+    # This is because using <onlyinclude> on a text fragment is
+    # equivalent to enclosing it in <includeonly> tags **AND**
+    # enclosing all the rest of the template body in <noinclude> tags.
+
+    # remove comments
+    text = comment.sub('', text)
+
+    # eliminate <noinclude> fragments
+    text = reNoinclude.sub('', text)
+    # eliminate unterminated <noinclude> elements
+    text = re.sub(r'<noinclude\s*>.*$', '', text, flags=re.DOTALL)
+    text = re.sub(r'<noinclude/>', '', text)
+
+    onlyincludeAccumulator = ''
+    for m in re.finditer('<onlyinclude>(.*?)</onlyinclude>', text, re.DOTALL):
+        onlyincludeAccumulator += m.group(1)
+    if onlyincludeAccumulator:
+        text = onlyincludeAccumulator
+    else:
+        text = reIncludeonly.sub('', text)
+
+    if text:
+        if title in options.templates:
+            logging.warn('Redefining: %s', title)
+        options.templates[title] = text
 
 
 def load_templates(source, output_file):
@@ -197,26 +313,22 @@ def load_templates(source, output_file):
         for page_count, page_lines in enumerate(pages(f)):
             page_text = ''.join(page_lines)
             item = extract_wiki_item(page_text)
-            page = page_text
-            if ns in templateKeys:
-                text = ''.join(page)
-                define_template(title, text)
+            # page = item.text
+            if item.ns in templateKeys:
+                # text = ''.join(page)
+                define_template(item.title, item.text)
                 # save templates and modules to file
-                if output_file:
-                    output.write('<page>\n')
-                    output.write('   <title>%s</title>\n' % title)
-                    output.write('   <ns>%s</ns>\n' % ns)
-                    output.write('   <id>%s</id>\n' % id)
-                    output.write('   <text>')
-                    for line in page:
-                        output.write(line)
-                    output.write('   </text>\n')
-                    output.write('</page>\n')
+                output.write('<page>\n')
+                output.write('   <title>%s</title>\n' % item.title)
+                output.write('   <ns>%s</ns>\n' % item.ns)
+                output.write('   <id>%s</id>\n' % id)
+                output.write('   <text>')
+                output.write(item.text)
+                output.write('   </text>\n')
+                output.write('</page>\n')
             if page_count and page_count % 100000 == 0:
                 logging.info("Preprocessed %d pages", page_count)
-        if output_file:
-            output.close()
-            logging.info("Saved %d templates to '%s'", len(options.templates), output_file)
+        logging.info("Saved %d templates to '%s'", len(options.templates), output_file)
 
 
 if __name__ == '__main__':
