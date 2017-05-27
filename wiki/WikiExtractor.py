@@ -11,6 +11,7 @@ import os.path
 import re  # TODO use regex when it will be standard
 import time
 import json
+from collections import defaultdict
 from io import StringIO
 from multiprocessing import Queue, Process, Value, cpu_count
 from timeit import default_timer
@@ -124,6 +125,12 @@ options = SimpleNamespace(
     ],
 )
 
+NS_CAT = '14'
+NS_PAGE = '0'
+NS_TEMPLATE = '10'
+NS_MODULE = '828'
+NS_LIST = [NS_PAGE, NS_CAT]
+
 ##
 # Keys for Template and Module namespaces
 templateKeys = set(['10', '828'])
@@ -135,7 +142,7 @@ filter_disambig_page_pattern = re.compile("{{disambig(uation)?(\|[^}]*)?}}")
 ##
 # page filtering logic -- remove templates, undesired xml namespaces, and disambiguation pages
 def keepPage(ns, page):
-    if ns != '0':               # Aritcle
+    if ns not in {NS_PAGE, NS_CAT}:               # Aritcle
         return False
     # remove disambig pages if desired
     if options.filter_disambig_pages:
@@ -147,6 +154,9 @@ def keepPage(ns, page):
 
 def get_url(uid):
     return "%s?curid=%s" % (options.urlbase, uid)
+
+
+RE_REDIRECT = re.compile('title="(.+?)"', re.U)
 
 
 # =========================================================================
@@ -501,17 +511,14 @@ class Extractor(object):
                 out.write('\n')
             out.write(footer)
 
-    def extract(self, out):
-        """
-        :param out: a memory file.
-        """
-        logging.info('%s\t%s', self.id, self.title)
+    def extract(self):
+        # logging.info('%s\t%s', self.id, self.title)
         
         # Separate header from text with a newline.
-        if options.toHTML:
-            title_str = '<h1>' + self.title + '</h1>'
-        else:
-            title_str = self.title + '\n'
+        # if options.toHTML:
+        #     title_str = '<h1>' + self.title + '</h1>'
+        # else:
+        #     title_str = self.title + '\n'
         # https://www.mediawiki.org/wiki/Help:Magic_words
         colon = self.title.find(':')
         if colon != -1:
@@ -551,14 +558,13 @@ class Extractor(object):
         # $text = $frame->expand( $dom );
         #
         text = self.transform(text)
-        text = self.wiki2text(text)
-        text = compact(self.clean(text))
-        text = [title_str] + text
-        
-        if sum(len(line) for line in text) < options.min_text_length:
-            return
-        
-        self.write_output(out, text)
+        # print(text)
+        # text = self.wiki2text(text)
+        # text = compact(self.clean(text))
+        # text = [title_str] + text
+
+        # if sum(len(line) for line in text) < options.min_text_length:
+        #     return
         
         errs = (self.template_title_errs,
                 self.recursion_exceeded_1_errs,
@@ -568,6 +574,8 @@ class Extractor(object):
             logging.warn("Template errors in article '%s' (%s): title(%d) recursion(%d, %d, %d)",
                          self.title, self.id, *errs)
 
+        return text
+        # return '\n'.join(text)
 
     def transform(self, wikitext):
         """
@@ -632,7 +640,7 @@ class Extractor(object):
         text = text.replace("'''", '').replace("''", '"')
 
         # replace internal links
-        text = replaceInternalLinks(text)
+        # text = replaceInternalLinks(text)
 
         # replace external links
         text = replaceExternalLinks(text)
@@ -2165,6 +2173,10 @@ listClose = {'*': '</ul>', '#': '</ol>', ';': '</dl>', ':': '</dl>'}
 listItem = {'*': '<li>%s</li>', '#': '<li>%s</<li>', ';': '<dt>%s</dt>',
             ':': '<dd>%s</dd>'}
 
+# [[Category:自然科學]]
+RE_CAT = re.compile(r'\[\[(Category|分類):(.+?)\]\]', re.U)
+DISAM = ['DISAM', 'disambig']
+
 
 def compact(text):
     """Deal with headers, lists, empty sections, residuals of tables.
@@ -2388,7 +2400,7 @@ def load_templates(file, output_file=None):
     if output_file:
         output = codecs.open(output_file, 'wb', 'utf-8')
     for page_count, page_data in enumerate(pages_from(file)):
-        id, revid, title, ns, page = page_data
+        id, revid, title, ns, page, redirect = page_data
         if not output_file and (not options.templateNamespace or
                                 not options.moduleNamespace):  # do not know it yet
             # reconstruct templateNamespace and moduleNamespace from the first title
@@ -2435,10 +2447,11 @@ def pages_from(input):
     last_id = None
     revid = None
     inText = False
-    redirect = False
+    redirect_to = None
     title = None
     for line in input:
-        if not isinstance(line, text_type): line = line.decode('utf-8')
+        if not isinstance(line, text_type):
+            line = line.decode('utf-8')
         if '<' not in line:  # faster than doing re.search()
             if inText:
                 page.append(line)
@@ -2449,7 +2462,7 @@ def pages_from(input):
         tag = m.group(2)
         if tag == 'page':
             page = []
-            redirect = False
+            redirect_to = None
         elif tag == 'id' and not id:
             id = m.group(3)
         elif tag == 'id' and id:
@@ -2459,7 +2472,8 @@ def pages_from(input):
         elif tag == 'ns':
             ns = m.group(3)
         elif tag == 'redirect':
-            redirect = True
+            m = RE_REDIRECT.search(line)
+            redirect_to = m.group(1)
         elif tag == 'text':
             if m.lastindex == 3 and line[m.start(3)-2] == '/': # self closing
                 # <text xml:space="preserve" />
@@ -2476,8 +2490,8 @@ def pages_from(input):
         elif inText:
             page.append(line)
         elif tag == '/page':
-            if id != last_id and not redirect:
-                yield (id, revid, title, ns, page)
+            if id != last_id:
+                yield (id, revid, title, ns, page, redirect_to)
                 last_id = id
                 ns = '0'
             id = None
@@ -2557,75 +2571,45 @@ def process_dump(input_file, template_file, out_file, file_size, file_compress,
     logging.info("Starting page extraction from %s.", input_file)
     extract_start = default_timer()
 
-    # Parallel Map/Reduce:
-    # - pages to be processed are dispatched to workers
-    # - a reduce process collects the results, sort them and print them.
-
-    process_count = max(1, process_count)
-    maxsize = 10 * process_count
-    # output queue
-    output_queue = Queue(maxsize=maxsize)
-
-    if out_file == '-':
-        out_file = None
-
-    worker_count = process_count
-
-    # load balancing
-    max_spool_length = 10000
-    spool_length = Value('i', 0, lock=False)
-
-    # reduce job that sorts and prints output
-    reduce = Process(target=reduce_process,
-                     args=(options, output_queue, spool_length,
-                           out_file, file_size, file_compress))
-    reduce.start()
-
-    # initialize jobs queue
-    jobs_queue = Queue(maxsize=maxsize)
-
-    # start worker processes
-    logging.info("Using %d extract processes.", worker_count)
-    workers = []
-    for i in range(worker_count):
-        extractor = Process(target=extract_process,
-                            args=(options, i, jobs_queue, output_queue))
-        extractor.daemon = True  # only live while parent process lives
-        extractor.start()
-        workers.append(extractor)
+    # method: extract_process
 
     # Mapper process
+    items = defaultdict(dict)
     page_num = 0
     for page_data in pages_from(input):
-        id, revid, title, ns, page = page_data
+        if page_num > 100000:
+            break
+
+        id, revid, title, ns, page, redirect_to = page_data
+        colon = title.find(':')
+        if colon != -1:
+            title = title[colon + 1:]
         if keepPage(ns, page):
-            # slow down
-            delay = 0
-            if spool_length.value > max_spool_length:
-                # reduce to 10%
-                while spool_length.value > max_spool_length/10:
-                    time.sleep(10)
-                    delay += 10
-            if delay:
-                logging.info('Delay %ds', delay)
-            job = (id, revid, title, page, page_num)
-            jobs_queue.put(job) # goes to any available extract_process
             page_num += 1
-        page = None             # free memory
+            page_text = extract_item_text(id, revid, title, page)
+            text = ''.join(page_text)
+            if int(id) == 73018:
+                print(text)
+            obj = {'title': title}
+            if redirect_to:
+                obj['red'] = redirect_to
+            if text:
+                cats = RE_CAT.findall(text)
+                cats = [c.split('|')[0].strip() for label, c in cats]
+                if cats:
+                    if ns == NS_PAGE:
+                        obj['inst_of'] = cats
+                    elif ns == NS_CAT:
+                        obj['subcls_of'] = cats
+                is_disam = any(disam in text for disam in DISAM)
+                if is_disam:
+                    obj['disam'] = True
+            items[ns][id] = obj
+        page = None
 
     input.close()
 
-    # signal termination
-    for _ in workers:
-        jobs_queue.put(None)
-    # wait for workers to terminate
-    for w in workers:
-        w.join()
-
-    # signal end of work to reduce process
-    output_queue.put(None)
-    # wait for it to finish
-    reduce.join()
+    json.dump(items, open('items.json', 'w'), ensure_ascii=False)
 
     extract_duration = default_timer() - extract_start
     extract_rate = page_num / extract_duration
@@ -2674,6 +2658,20 @@ def extract_process(opts, i, jobs_queue, output_queue):
     out.close()
 
 
+def extract_item_text(id, revid, title, page):
+    """Pull tuples of raw page content, do CPU/regex-heavy fixup, push finished text
+    """
+    try:
+        # print(id, revid, title, page, page_num)
+        e = Extractor(id, revid, title, page)
+        page = None  # free memory
+        text = e.extract()
+    except:
+        text = ''
+        logging.exception('Processing page text error: %s %s', id, title)
+    return text
+
+
 report_period = 10000           # progress report period
 def reduce_process(opts, output_queue, spool_length,
                    out_file=None, file_size=0, file_compress=True):
@@ -2695,7 +2693,7 @@ def reduce_process(opts, output_queue, spool_length,
         nextFile = NextFile(out_file)
         output = OutputSplitter(nextFile, file_size, file_compress)
     else:
-        output = sys.stdout if PY2 else sys.stdout.buffer
+        output = sys.stdout.buffer
         if file_compress:
             logging.warn("writing to stdout, so no output compression (use an external tool)")
 
@@ -2812,7 +2810,9 @@ def main():
         options.keepLinks = True
 
     options.expand_templates = args.no_templates
-    options.filter_disambig_pages = args.filter_disambig_pages
+    # options.filter_disambig_pages = args.filter_disambig_pages
+    # TODO: disam
+    options.filter_disambig_pages = False
     options.keep_tables = args.keep_tables
 
     try:
