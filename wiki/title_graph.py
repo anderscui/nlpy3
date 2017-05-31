@@ -42,13 +42,12 @@ for cid in citems:
 #     else:
 #         pitems_main[pid] = item
 
-ctitles = {citems[cid]['title']:cid for cid in citems}
+# ctitles = {citems[cid]['title']:cid for cid in citems}
 
-
-ptitles = {pitems[pid]['title']:pid for pid in pitems}
+# ptitles = {pitems[pid]['title']:pid for pid in pitems}
 
 ctitles_main = {citems_main[pid]['title']:pid for pid in citems_main}
-ctitles_syn = {citems_syn[pid]['title']:pid for pid in citems_syn}
+# ctitles_syn = {citems_syn[pid]['title']:pid for pid in citems_syn}
 #
 # ptitles_main = {pitems_main[pid]['title']:pid for pid in pitems_main}
 # ptitles_syn = {pitems_syn[pid]['title']:pid for pid in pitems_syn}
@@ -73,8 +72,11 @@ for pid in pitems:
             if cls in ctitles_main:
                 g.add_edge(int(ctitles_main[cls]), int(pid))
 
-# nodes: 6738454, edges: 28375220
+print(g.number_of_nodes(), g.number_of_edges())
+
 # nodes: 6507250, edges: 27857208
+# nodes: 6633360, edges: 29922434
+
 
 to_remove_cats = ['Reference works', 'Library science', 'Places', 'Events',
                   'People', 'Personal life', 'Self', 'Surnames',
@@ -115,23 +117,116 @@ for e in take(10, g.edges_iter()):
         i += 1
 
 
-top_nodes = set()
-g2 = nx.DiGraph()
+def show_cat_parents(title):
+    if title in ctitles_main:
+        cid = int(ctitles_main[title])
+        for n in g.predecessors(cid):
+            print(citems[str(n)])
 
 
-def add_sub_nodes(n, level=1):
-    if level > 15:
+def show_cat_children(title):
+    if title in ctitles_main:
+        cid = int(ctitles_main[title])
+        for n in g.successors(cid):
+            sn = str(n)
+            if sn in citems:
+                print(citems[sn])
+            else:
+                print(pitems[sn])
+
+
+def gather_cats_contents(titles):
+    contents = set()
+    for title in titles:
+        if title in ctitles_main:
+            cid = int(ctitles_main[title])
+            gather_cat_contents(cid, contents)
+    return contents
+
+
+def gather_cat_contents(cid, checked, level=0, max_level=3):
+    # already checked.
+    if level > max_level:
         return
 
-    for i in g.successors(n):
-        pres = g.predecessors(i)
-        if any('D' not in g[pre][i] for pre in pres):
-            g2.add_edge(n, i)
-            add_sub_nodes(i, level+1)
+    checked.add(cid)
+    for n in g.successors(cid):
+        sn = str(n)
+        if sn in citems:
+            gather_cat_contents(n, checked, level+1)
+        else:
+            checked.add(n)
 
 
-def add_node(n):
-    pres = g.predecessors(n)
-    if len(pres) == 0:
-        g2.add_node(n)
-        add_sub_nodes(n)
+def show_cat_contents(cid, checked, excluded, level=0):
+    # already checked.
+    if cid in checked or level > 15:
+        return
+
+    checked.add(cid)
+    for n in g.successors(cid):
+        sn = str(n)
+        if sn in citems:
+            show_cat_contents(n, checked, excluded, level+1)
+        else:
+            checked.add(n)
+
+
+def show_cat_by_title(title):
+    found = set()
+    excluded = set()
+    if title in ctitles_main:
+        cid = int(ctitles_main[title])
+        show_cat_contents(cid, found, excluded)
+    return found
+
+
+def tag_subnodes(cid, checked, tag, level=0):
+    if cid in checked or level > 15:
+        return
+
+    checked.add(cid)
+    for n in g.successors(cid):
+        g[cid][n][tag] = 1
+        sn = str(n)
+        if sn in citems:
+            tag_subnodes(n, checked, tag, level+1)
+
+checked = set()
+tag_subnodes(1, checked, 'D')
+
+
+def collect_nodes(g2, cid, checked, level=0):
+    # already checked.
+    if cid in checked or level > 16:
+        return
+
+    checked.add(cid)
+    for n in g.successors(cid):
+        if 'D' not in g[cid][n] or 'K' in g[cid][n]:
+            g2.add_edge(cid, n)
+
+        sn = str(n)
+        if sn in citems:
+            collect_nodes(g2, n, checked, level + 1)
+
+# top_nodes = set()
+# g2 = nx.DiGraph()
+#
+#
+# def add_sub_nodes(n, level=1):
+#     if level > 15:
+#         return
+#
+#     for i in g.successors(n):
+#         pres = g.predecessors(i)
+#         if any('D' not in g[pre][i] for pre in pres):
+#             g2.add_edge(n, i)
+#             add_sub_nodes(i, level+1)
+#
+#
+# def add_node(n):
+#     pres = g.predecessors(n)
+#     if len(pres) == 0:
+#         g2.add_node(n)
+#         add_sub_nodes(n)

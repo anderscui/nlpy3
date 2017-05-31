@@ -1,7 +1,7 @@
 # coding=utf-8
 import glob
 import re
-from wiki.utils import dump_to_json, load_json
+from utils import dump_to_json, load_json, extract_cat_title, clean_title
 
 RE_DOC_TITLE = re.compile('<doc id="(\d+)" .+ title="(.+?)">', re.U)
 RE_CAT = re.compile(r'\[\[(Category|分類|分类):((.|\n)+?)\]\]', re.U | re.M)
@@ -37,7 +37,7 @@ def main():
                         in_doc = True
                         doc_id, title = extract_title_id(line)
                         cur_doc['id'] = doc_id
-                        cur_doc['title'] = title
+                        cur_doc['title'] = clean_title(title)
                     continue
 
                 if line.startswith('</doc>'):
@@ -46,7 +46,7 @@ def main():
 
                     text = ''.join(cur_lines)
                     cats = RE_CAT.findall(text)
-                    cats = [c.split('|')[0].strip() for label, c, _ in cats]
+                    cats = [c.split('|')[0].strip() for _, c, _ in cats]
                     if cats:
                         cur_doc['cats'] = cats
                     is_disam = any(disam in text for disam in DISAMS)
@@ -62,19 +62,23 @@ def main():
                 else:
                     cur_lines.append(line)
 
-        if len(docs) >= 10000:
-            dump_to_json(docs, 'docs_{}.json'.format(batch))
+        if len(docs) >= 100000:
+            dump_to_json(docs, 'enwiki/expanded_{}.json'.format(batch))
             docs = {}
             batch += 1
+
+    if docs:
+        dump_to_json(docs, 'enwiki/expanded_{}.json'.format(batch))
+        docs = {}
 
 
 if __name__ == '__main__':
     main()
+    # 14766698
 
-    i = 0
-    for fname in glob.glob('docs_*.json', recursive=True):
+    docs = {}
+    for fname in glob.glob('expanded_*.json', recursive=True):
         print(fname)
-        docs = load_json(fname)
-        i += len(docs)
-    print(i)
+        docs.update(load_json(fname))
+    print(len(docs))
     # extract_categories()
