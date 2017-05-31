@@ -18,7 +18,7 @@ ns_list = [NS_PAGE, NS_CAT]
 
 # [[Category:自然科學]]
 RE_CAT = re.compile(r'\[\[(Category|分類):(.+?)\]\]', re.U)
-DISAM = ['{{disambiguation}}', '{{disambig}}']
+DISAM = ['{{disambiguation}}', '{{disambig}}', '{{dab}}', '{{disamb}}']
 
 
 class Page(object):

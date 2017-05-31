@@ -211,13 +211,13 @@ filter_disambig_page_pattern = re.compile("{{disambig(uation)?(\|[^}]*)?}}")
 ##
 # page filtering logic -- remove templates, undesired xml namespaces, and disambiguation pages
 def keepPage(ns, page):
-    if ns != '0':               # Aritcle
+    if ns not in {'0', '14'}:               # Aritcle
         return False
     # remove disambig pages if desired
-    if options.filter_disambig_pages:
-        for line in page:
-            if filter_disambig_page_pattern.match(line):
-                return False
+    # if options.filter_disambig_pages:
+    #     for line in page:
+    #         if filter_disambig_page_pattern.match(line):
+    #             return False
     return True
 
 
@@ -627,9 +627,10 @@ class Extractor(object):
         # $text = $frame->expand( $dom );
         #
         text = self.transform(text)
-        text = self.wiki2text(text)
-        text = compact(self.clean(text))
-        text = [title_str] + text
+        # text = self.wiki2text(text)
+        # text = compact(self.clean(text))
+        # text = [title_str] + text
+        text = [text]
 
         if sum(len(line) for line in text) < options.min_text_length:
             return
@@ -708,7 +709,7 @@ class Extractor(object):
         text = text.replace("'''", '').replace("''", '"')
 
         # replace internal links
-        text = replaceInternalLinks(text)
+        # text = replaceInternalLinks(text)
 
         # replace external links
         text = replaceExternalLinks(text)
@@ -2817,7 +2818,7 @@ def pages_from(input):
         elif inText:
             page.append(line)
         elif tag == '/page':
-            if id != last_id and not redirect:
+            if id != last_id:
                 yield (id, revid, title, ns, page)
                 last_id = id
                 ns = '0'
