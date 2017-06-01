@@ -72,49 +72,11 @@ for pid in pitems:
             if cls in ctitles_main:
                 g.add_edge(int(ctitles_main[cls]), int(pid))
 
+g = nx.read_gpickle('edges_01.gpickle')
 print(g.number_of_nodes(), g.number_of_edges())
 
 # nodes: 6507250, edges: 27857208
 # nodes: 6633360, edges: 29922434
-
-
-to_remove_cats = ['Reference works', 'Library science', 'Places', 'Events',
-                  'People', 'Personal life', 'Self', 'Surnames',
-                  'Thought', ]
-
-
-def tag_del_cls_node(graph, cid, level=0):
-    if level > 100:
-        print('overflow...')
-        return
-    print(citems[str(cid)])
-
-    if graph.has_node(cid):
-        for i in graph.successors(cid):
-            e = graph.edge[cid][i]
-            # not tagged
-            if 'D' not in e:
-                e['D'] = 1
-                si = str(i)
-                if si in citems:
-                    tag_del_cls_node(graph, i, level + 1)
-
-
-def tag_del_cls_node_by_title(graph, ctitles, title):
-    if title in ctitles:
-        tag_del_cls_node(graph, int(ctitles[title]))
-
-
-i = 0
-for n in g.nodes():
-    if len(g.predecessors(n)) == 0 and len(g.successors(n)) == 0:
-        i += 1
-
-i = 0
-for e in take(10, g.edges_iter()):
-    edge = g[e[0]][e[1]]
-    if 'D' in edge:
-        i += 1
 
 
 def show_cat_parents(title):
@@ -124,7 +86,7 @@ def show_cat_parents(title):
             print(citems[str(n)])
 
 
-def show_cat_children(title):
+def show_cat_children(g, title):
     if title in ctitles_main:
         cid = int(ctitles_main[title])
         for n in g.successors(cid):
@@ -153,21 +115,21 @@ def gather_cat_contents(cid, checked, level=0, max_level=3):
     for n in g.successors(cid):
         sn = str(n)
         if sn in citems:
-            gather_cat_contents(n, checked, level+1)
+            gather_cat_contents(n, checked, level+1, max_level)
         else:
             checked.add(n)
 
 
-def show_cat_contents(cid, checked, excluded, level=0):
+def show_cat_contents(cid, checked, excluded, level=0, max_level=15):
     # already checked.
-    if cid in checked or level > 15:
+    if cid in checked or level > max_level:
         return
 
     checked.add(cid)
     for n in g.successors(cid):
         sn = str(n)
         if sn in citems:
-            show_cat_contents(n, checked, excluded, level+1)
+            show_cat_contents(n, checked, excluded, level+1, max_level)
         else:
             checked.add(n)
 
@@ -181,8 +143,36 @@ def show_cat_by_title(title):
     return found
 
 
-def tag_subnodes(cid, checked, tag, level=0):
-    if cid in checked or level > 15:
+root_id = int(ctitles_main['Main topic classifications'])
+sci_id = int(ctitles_main['Science and technology'])
+
+
+def bfs(G, source, visitor, max_level=16):
+    visited = set()
+    queue = [(source, 0)]
+    while queue:
+        node, level = queue.pop(0)
+        if level > max_level:
+            continue
+
+        visitor(G, node, level)
+        visited.add(node)
+        for sub_node in G.successors(node):
+            if (sub_node not in visited) and (sub_node not in queue):
+                queue.append((sub_node, level+1))
+
+    visited = None
+
+
+def tag_level(G, n, level):
+    G.node[n]['L'] = level
+
+
+bfs(g, root_id, tag_level)
+
+
+def tag_subnodes(cid, checked, tag, level=0, max_level=15):
+    if cid in checked or level > max_level:
         return
 
     checked.add(cid)
@@ -190,15 +180,24 @@ def tag_subnodes(cid, checked, tag, level=0):
         g[cid][n][tag] = 1
         sn = str(n)
         if sn in citems:
-            tag_subnodes(n, checked, tag, level+1)
-
-checked = set()
-tag_subnodes(1, checked, 'D')
+            tag_subnodes(n, checked, tag, level+1, max_level)
 
 
-def collect_nodes(g2, cid, checked, level=0):
+excludes = [n for n in g.successors(root_id) if n != sci_id]
+for cid in excludes:
+    checked = set()
+    tag_subnodes(cid, checked, 'D', 0, 15)
+
+
+includes = [sci_id]
+for cid in includes:
+    checked = set()
+    tag_subnodes(cid, checked, 'K', 0, 15)
+
+
+def collect_nodes(g2, cid, checked, level=0, max_level=16):
     # already checked.
-    if cid in checked or level > 16:
+    if cid in checked or level > max_level:
         return
 
     checked.add(cid)
@@ -208,25 +207,9 @@ def collect_nodes(g2, cid, checked, level=0):
 
         sn = str(n)
         if sn in citems:
-            collect_nodes(g2, n, checked, level + 1)
+            collect_nodes(g2, n, checked, level + 1, max_level)
 
-# top_nodes = set()
-# g2 = nx.DiGraph()
-#
-#
-# def add_sub_nodes(n, level=1):
-#     if level > 15:
-#         return
-#
-#     for i in g.successors(n):
-#         pres = g.predecessors(i)
-#         if any('D' not in g[pre][i] for pre in pres):
-#             g2.add_edge(n, i)
-#             add_sub_nodes(i, level+1)
-#
-#
-# def add_node(n):
-#     pres = g.predecessors(n)
-#     if len(pres) == 0:
-#         g2.add_node(n)
-#         add_sub_nodes(n)
+
+g2 = nx.DiGraph()
+checked = set()
+collect_nodes(g2, root_id, checked, 0, 16)
