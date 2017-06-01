@@ -8,19 +8,21 @@ g = nx.DiGraph()
 
 # ADD node(s)
 g.add_edges_from([(1, 2), (1, 3), (2, 4), (2, 5), (3, 6), (6, 7), (7, 3)])
+print(g.has_node(1))
+print(g.has_node(10))
 # print(g.nodes())
 # print(g.edges())
 
 
 def bfs(G, source, visitor):
     visited = set()
-    queue = [(source, 0)]
+    queue = deque([(source, 0)])
     while queue:
-        node, level = queue.pop(0)
+        node, level = queue.popleft()
         visitor(G, node, level)
         visited.add(node)
         for sub_node in G.successors(node):
-            if (sub_node not in visited) and (sub_node not in queue):
+            if sub_node not in visited:
                 queue.append((sub_node, level+1))
 
 
