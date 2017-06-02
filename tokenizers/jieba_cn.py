@@ -6,5 +6,6 @@ tokens = ' '.join(jieba.cut(sent))
 print(tokens)
 
 
+sent = "Machine-learning工程师"
 for w, t in pseg.cut(sent):
     print(w, t)

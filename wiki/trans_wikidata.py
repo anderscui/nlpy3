@@ -26,10 +26,29 @@ def zh_label(item_labels):
     return ''
 
 
-def en_zh_labels(labels):
+def en_zh_labels(items):
     en_zh = {}
-    for item_id in labels:
-        item_labels = labels[item_id]['labels']
+    for item_id in items:
+        item_labels = items[item_id]['labels']
+        enlabel = en_label(item_labels)
+        zhlabel = zh_label(item_labels)
+        if enlabel and zhlabel:
+            if ':' not in enlabel or enlabel.startswith('Category:'):
+                enlabel = extract_title(enlabel)
+                zhlabel = extract_title(zhlabel)
+            else:
+                continue
+
+            if enlabel[0].islower():
+                enlabel = enlabel[0].upper() + enlabel[1:]
+            en_zh[enlabel] = zhlabel
+    return en_zh
+
+
+def en_zh_aliases(items):
+    en_zh = {}
+    for item_id in items:
+        item_labels = items[item_id]['labels']
         enlabel = en_label(item_labels)
         zhlabel = zh_label(item_labels)
         if enlabel and zhlabel:

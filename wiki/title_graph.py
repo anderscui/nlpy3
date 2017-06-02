@@ -55,7 +55,6 @@ ptitles_main = {pitems_main[pid]['title']:pid for pid in pitems_main}
 
 
 # graph
-
 def generate_raw_graph():
     g = nx.DiGraph()
     # add sub class edges

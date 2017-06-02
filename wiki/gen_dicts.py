@@ -50,9 +50,6 @@ ctitles_main = {citems_main[pid]['title']:pid for pid in citems_main}
 ptitles_main = {pitems_main[pid]['title']:pid for pid in pitems_main}
 # ptitles_syn = {pitems_syn[pid]['title']:pid for pid in pitems_syn}
 
-g = nx.read_gpickle('edges.gpickle')
-# g = nx.DiGraph()
-
 
 def gen_zh_inst_dict():
     insts = {}
@@ -144,3 +141,47 @@ def gen_en_dict():
     en_dict = {'cat': en_cats, 'inst': en_inst}
     # (3827096, 837550)
     dump_to_json(en_dict, 'en_dict.json')
+
+
+def gen_inst_dict():
+    insts = gen_en_inst_dict()
+    zh_insts = gen_zh_inst_dict()
+    insts.update(zh_insts)
+    return insts
+
+
+def gen_cats_dict():
+    cats = gen_en_cats_dict()
+    zh_cats = gen_zh_cats_dict()
+    cats.update(zh_cats)
+    return cats
+
+
+def gen_id_dict():
+    ids = {}
+    for pid in pitems_main:
+        item = pitems_main[pid]
+        iid = int(pid)
+        if g.has_node(iid):
+            title = item['zh'] if 'zh' in item else item['title']
+            ids[iid] = title.lower()
+
+    for cid in citems_main:
+        item = citems_main[cid]
+        iid = int(cid)
+        if g.has_node(iid):
+            title = item['zh'] if 'zh' in item else item['title']
+            ids[iid] = title.lower()
+
+    return ids
+
+
+g = nx.read_gpickle('edges.gpickle')
+# g = nx.DiGraph()
+inst_dict = gen_inst_dict()
+cats_dict = gen_cats_dict()
+title_ids = { 'inst': inst_dict, 'cat': cats_dict }
+dump_to_json(title_ids, 'title_ids.json')
+
+id_dict = gen_id_dict()
+dump_to_json(id_dict, 'id_titles.json')
