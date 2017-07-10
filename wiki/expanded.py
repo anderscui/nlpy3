@@ -63,12 +63,12 @@ def main():
                     cur_lines.append(line)
 
         if len(docs) >= 100000:
-            dump_to_json(docs, 'enwiki/expanded_{}.json'.format(batch))
+            dump_to_json(docs, 'expanded/expanded_{}.json'.format(batch))
             docs = {}
             batch += 1
 
     if docs:
-        dump_to_json(docs, 'enwiki/expanded_{}.json'.format(batch))
+        dump_to_json(docs, 'expanded/expanded_{}.json'.format(batch))
         docs = {}
 
 
@@ -76,9 +76,9 @@ if __name__ == '__main__':
     main()
     # 14766698
 
-    docs = {}
-    for fname in glob.glob('expanded_*.json', recursive=True):
-        print(fname)
-        docs.update(load_json(fname))
-    print(len(docs))
+    # docs = {}
+    # for fname in glob.glob('expanded_*.json', recursive=True):
+    #     print(fname)
+    #     docs.update(load_json(fname))
+    # print(len(docs))
     # extract_categories()
