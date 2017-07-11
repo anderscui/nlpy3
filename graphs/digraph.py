@@ -10,6 +10,9 @@ g.add_edge(3, 4)
 print(g.nodes())
 print(g.edges())
 
+print(g.predecessors(1))
+print(g.predecessors(3))
+
 # parent nodes
 print(nx.ancestors(g, 1))
 # child nodes
