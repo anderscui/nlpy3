@@ -27,6 +27,7 @@ import urllib
 import random
 
 from flask import Flask, render_template, request, abort, send_file, redirect, Response
+
 app = Flask(__name__)
 
 # Constants
@@ -34,39 +35,40 @@ DB_FILE = "db.sqlite"
 SETTINGS_FILE = "settings.json"
 LOGS_FILE = "logs.log"
 CREATE_TABLE_STMT = "CREATE TABLE IF NOT EXISTS data (" \
-    "url text PRIMARY KEY, " \
-    "label text, " \
-    "last_modified datetime DEFAULT current_timestamp, " \
-    "before text, " \
-    "after text, " \
-    " UNIQUE (url) ON CONFLICT IGNORE )" # Ignore it to preserve previous labels
+                    "text text PRIMARY KEY, " \
+                    "label text, " \
+                    "last_modified datetime DEFAULT current_timestamp, " \
+                    "before text, " \
+                    "after text, " \
+                    " UNIQUE (text) ON CONFLICT IGNORE )"  # Ignore it to preserve previous labels
 INSERT_STMT = "INSERT INTO data VALUES (?, ?, ?, ?, ?)"
-UPDATE_STMT = "UPDATE data SET label=?, last_modified=datetime() WHERE url=?"
+UPDATE_STMT = "UPDATE data SET label=?, last_modified=datetime() WHERE text=?"
 SELECT_UNLABELLED = "SELECT * FROM data WHERE label IS NULL"
 SELECT_LABELLED = "SELECT * FROM data WHERE label IS NOT NULL"
-GET_STMT = "SELECT * FROM data WHERE url = ?"
+GET_STMT = "SELECT * FROM data WHERE text = ?"
 LOG_LEVEL = logging.DEBUG
 
+service = None  # will be initialized from CLI args
 
-service = None # will be initialized from CLI args
 
 @app.route("/")
 def webpage():
-    url = request.args.get('url')
-    if not url:
-        # redirect with url query param so that user can navigate back later
+    text = request.args.get('text')
+    if not text:
+        # redirect with text query param so that user can navigate back later
         next_rec = service.get_next_unlabelled()
         if next_rec:
-            return redirect("/?url=%s" % (urllib.parse.quote(next_rec['url'])))
+            return redirect("/?text=%s" % (urllib.parse.quote(next_rec['text'])))
         else:
             featured_content = "No Unlabelled Record Found."
     else:
-        featured_content = get_next(url)
+        featured_content = get_next(text)
     data = {
         'featured_content': featured_content,
         'status': service.overall_status()
     }
     return render_template('index.html', **data)
+
 
 @app.route("/proxy")
 def document():
@@ -75,52 +77,56 @@ def document():
         return abort(400, "File %s not found " % url)
     return send_file(url)
 
+
 @app.route("/update", methods=['POST'])
 def update():
     data = request.form
-    url = data['url']
+    text = data['text']
     labels = data.getlist('label')
     assert labels
-    assert url
-    count = service.update_record(url, labels)
+    assert text
+    count = service.update_record(text, labels)
     if count > 0:
         next_rec = service.get_next_unlabelled()
         target = "/"
         if next_rec:
-            target += "?url=%s" % (urllib.parse.quote(next_rec['url']))
+            target += "?text=%s" % (urllib.parse.quote(next_rec['text']))
         return redirect(location=target)
     else:
         return abort(400, "Failed... No records updated")
+
 
 @app.route("/settings")
 def get_settings():
     return json.dumps(service.settings)
 
+
 @app.route("/download.csv")
 def download():
     recs = service.query_recs(SELECT_LABELLED + " ORDER BY last_modified DESC", first_only=False)
-    recs = map(lambda r: "\t".join([r['last_modified'], r['url'], r['label']])
-                            + "\n", recs)
+    recs = map(lambda r: ":::".join([r['last_modified'], r['text'], r['label']])
+                         + "\n", recs)
     return Response(recs, mimetype='text/csv')
 
-def get_next(url=None):
-    next_rec = service.get_record(url)
-    url = next_rec['url']
+
+def get_next(text=None):
+    next_rec = service.get_record(text)
+    text = next_rec['text']
     before = next_rec['before']
     after = next_rec['after']
     template_name = '%s.html' % service.settings['type']
-    data_url = url if url.startswith('http') else "/proxy?url=%s" % urllib.parse.quote(next_rec['url'])
+    data_url = text if text.startswith('http') else "/proxy?url=%s" % urllib.parse.quote(next_rec['text'])
     data = {
-        'data_url' : data_url,
-        'url': url,
+        'data_url': data_url,
+        'text': text,
         'before_cxt': before if before else '',
         'after_cxt': after if after else '',
         'task': service.settings['task']
     }
     return render_template(template_name, **data)
 
-class DbService(object):
 
+class DbService(object):
     def __init__(self, workdir, input_file):
         self.workdir = workdir
         print("Work Dir : %s" % workdir)
@@ -155,8 +161,8 @@ class DbService(object):
                     if nonempty:
                         n = len(nonempty)
                         lino = random.choice(range(n))
-                        before = nonempty[lino-1] if lino > 0 else None
-                        after = nonempty[lino+1] if lino < (n-1) else None
+                        before = nonempty[lino - 1] if lino > 0 else None
+                        after = nonempty[lino + 1] if lino < (n - 1) else None
                         urls_or_paths.append((nonempty[lino], before, after))
 
                 count = self.insert_if_not_exists(urls_or_paths)
@@ -168,11 +174,13 @@ class DbService(object):
         db_file = os.path.join(self.workdir, DB_FILE)
         self.log.info("Connecting to database file at %s" % db_file)
         db = sqlite3.connect(db_file, check_same_thread=False)
-        def dict_factory(cursor, row): # map tuples to dictionary with column names
+
+        def dict_factory(cursor, row):  # map tuples to dictionary with column names
             d = {}
             for idx, col in enumerate(cursor.description):
                 d[col[0]] = row[idx]
             return d
+
         db.row_factory = dict_factory
         cursor = db.cursor()
         cursor.execute(CREATE_TABLE_STMT)
@@ -183,18 +191,18 @@ class DbService(object):
     def insert_if_not_exists(self, urls):
         count = 0
         cursor = self.db.cursor()
-        for url, before, after in urls:
-            values = (url, None, datetime.now(), before, after)
-             # assumption: if rec exists, DB will IGNORE IT
+        for text, before, after in urls:
+            values = (text, None, datetime.now(), before, after)
+            # assumption: if rec exists, DB will IGNORE IT
             res = cursor.execute(INSERT_STMT, values)
             count += 1
         self.db.commit()
         cursor.close()
         return count
 
-    def update_record(self, url, labels):
-        self.log.info("Updating %s with %s" % (url, labels))
-        cur = self.db.execute(UPDATE_STMT, (",".join(labels), url))
+    def update_record(self, text, labels):
+        self.log.info("Updating %s with %s" % (text, labels))
+        cur = self.db.execute(UPDATE_STMT, (",".join(labels), text))
         count = cur.rowcount
         self.log.info("Rows Updated = %d" % count)
         cur.close()
@@ -203,10 +211,10 @@ class DbService(object):
 
     def get_next_unlabelled(self):
         return self.query_recs(SELECT_UNLABELLED + " ORDER BY RANDOM() LIMIT 1",
-                                first_only=True)
+                               first_only=True)
 
-    def get_record(self, url):
-        return self.db.execute(GET_STMT, (url,)).fetchone()
+    def get_record(self, text):
+        return self.db.execute(GET_STMT, (text,)).fetchone()
 
     def query_recs(self, query, first_only=True):
         cur = self.db.execute(query)
@@ -227,6 +235,7 @@ class DbService(object):
             self.log.info("Committing before exit.")
             self.db.commit()
             self.db = None
+
 
 if __name__ == "__main__":
     parser = ArgumentParser(description="Web UI for Labeling images")
