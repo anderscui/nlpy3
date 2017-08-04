@@ -15,7 +15,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import print_function
+import os
+os.environ['NADILEAF_ENV'] = 'dev'
+
+from etl.io import IOParams, DBNode, SQLFeed
+from ndconfig import RDS_SETTING
+
 from argparse import ArgumentParser
 import os
 import json
@@ -119,8 +124,8 @@ def get_next(text=None):
     data = {
         'data_url': data_url,
         'text': text,
-        'before_cxt': before if before else '',
-        'after_cxt': after if after else '',
+        'before_cxt': before.splitlines() if before else [],
+        'after_cxt': after.splitlines() if after else [],
         'task': service.settings['task']
     }
     return render_template(template_name, **data)
@@ -146,16 +151,19 @@ class DbService(object):
         self.log.info("Work Dir %s" % workdir)
         if input_file:
             if not os.path.exists(input_file):
-                self.log.info("Error: Input file not found : %s" % input_file)
-                sys.exit(1)
-            if input_file.endswith('.txt'):
+                self.log.info('Loading data from database...')
+                self.load_texts_from_db_source()
+
+            elif input_file.endswith('.txt'):
+                self.log.info('Loading data from text file...')
                 with open(input_file, 'r') as input:
-                    urls_or_paths = filter(lambda y: y, map(lambda x: x.strip(), input))
-                    count = self.insert_if_not_exists(urls_or_paths)
+                    samples = filter(lambda y: y, map(lambda x: x.strip(), input))
+                    count = self.insert_if_not_exists(samples)
                     self.log.info("Inserted %d new records from %s file." % (count, input_file))
             else:
+                self.log.info('Loading data from json file...')
                 secs = json.load(open(input_file, 'r'))
-                urls_or_paths = []
+                samples = []
                 for sec in secs[:100]:
                     nonempty = [line.strip() for line in sec if line.strip()]
                     if nonempty:
@@ -163,12 +171,50 @@ class DbService(object):
                         lino = random.choice(range(n))
                         before = nonempty[lino - 1] if lino > 0 else None
                         after = nonempty[lino + 1] if lino < (n - 1) else None
-                        urls_or_paths.append((nonempty[lino], before, after))
+                        samples.append((nonempty[lino], before, after))
 
-                count = self.insert_if_not_exists(urls_or_paths)
+                count = self.insert_if_not_exists(samples)
                 self.log.info("Inserted %d new records from %s file." % (count, input_file))
+
         else:
             self.log.info("No new inputs are supplied")
+
+    def load_texts_from_db_source(self):
+        ioparams = IOParams(
+            chunksize=1280,
+            flag='deterministic',
+            train_ratio=100)
+        dbnode = DBNode(
+            database=RDS_SETTING.job_crawl,
+            table_name='lagou_stage')
+
+        samples = []
+        for dfno, df in SQLFeed(dbnode,
+                                 origin_columns=['job_responsibility'],
+                                 params=ioparams):
+            if dfno > 0:
+                break
+            for i, row in df.iterrows():
+                job_desc = row['job_responsibility']
+                nonempty = [line.strip() for line in job_desc.splitlines() if line.strip()]
+                if nonempty:
+                    n = len(nonempty)
+                    lino = random.choice(range(n))
+
+                    before_lines = []
+                    if lino > 0:
+                        before_lines = nonempty[max(0, lino-2): lino]
+                    before = '\n'.join(before_lines) if before_lines else None
+
+                    after_lines = []
+                    if lino < (n - 1):
+                        after_lines = nonempty[lino+1: min(n-1, lino+2)+1]
+                    after = '\n'.join(after_lines) if after_lines else None
+
+                    samples.append((nonempty[lino], before, after))
+
+        count = self.insert_if_not_exists(samples)
+        self.log.info("Inserted %d new records from database." % count)
 
     def connect_db(self):
         db_file = os.path.join(self.workdir, DB_FILE)
@@ -242,6 +288,7 @@ if __name__ == "__main__":
     parser.add_argument("-i", "--input", help="Path to to input file which has list of paths, one per line. (Optional)")
     parser.add_argument("-w", "--work-dir", help="Work Directory. (Required)", required=True)
     parser.add_argument("-p", "--port", type=int, help="Bind port. (Optional)", default=8080)
+    parser.add_argument("-c", "--context", type=int, help="Context window size. (Optional)", default=1)
     args = vars(parser.parse_args())
     host = '0.0.0.0'
     service = DbService(args['work_dir'], args['input'])

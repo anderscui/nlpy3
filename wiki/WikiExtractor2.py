@@ -211,7 +211,7 @@ filter_disambig_page_pattern = re.compile("{{disambig(uation)?(\|[^}]*)?}}")
 ##
 # page filtering logic -- remove templates, undesired xml namespaces, and disambiguation pages
 def keepPage(ns, page):
-    if ns not in {'14'}:               # Aritcle
+    if ns not in {'0', '14'}:               # Aritcle
         return False
     # remove disambig pages if desired
     # if options.filter_disambig_pages:
