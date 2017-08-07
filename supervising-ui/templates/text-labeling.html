@@ -9,6 +9,8 @@
             {% for line in after_cxt %}
                 <p>{{ line }}</p>
             {% endfor %}
+
+            <p class="bg-warning">预测类别：{{ predicted }}</p>
         </div>
         <div class="col-md-6">
             <form method="POST" action="/update">
@@ -17,8 +19,6 @@
                 <input type="checkbox" name="label" value="{{ label }}" style="width: 25px; height: 25px;"> {{ label
                 }}<br/>
                 {% endfor %}
-                <br/>
-                <input type="checkbox" name="position" value="begin"> Begin <br/>
                 <br/>
                 <input type="submit" class="btn btn-primary" value="Submit">
                 <a class="btn btn-info" href="/"> Later </a>

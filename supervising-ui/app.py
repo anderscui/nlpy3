@@ -16,10 +16,12 @@
 # limitations under the License.
 
 import os
+
 os.environ['NADILEAF_ENV'] = 'dev'
 
 from etl.io import IOParams, DBNode, SQLFeed
 from ndconfig import RDS_SETTING
+from predictors.jd import section_of_line, sec_name
 
 from argparse import ArgumentParser
 import os
@@ -45,8 +47,9 @@ CREATE_TABLE_STMT = "CREATE TABLE IF NOT EXISTS data (" \
                     "last_modified datetime DEFAULT current_timestamp, " \
                     "before text, " \
                     "after text, " \
+                    "predicted text, " \
                     " UNIQUE (text) ON CONFLICT IGNORE )"  # Ignore it to preserve previous labels
-INSERT_STMT = "INSERT INTO data VALUES (?, ?, ?, ?, ?)"
+INSERT_STMT = "INSERT INTO data VALUES (?, ?, ?, ?, ?, ?)"
 UPDATE_STMT = "UPDATE data SET label=?, last_modified=datetime() WHERE text=?"
 SELECT_UNLABELLED = "SELECT * FROM data WHERE label IS NULL"
 SELECT_LABELLED = "SELECT * FROM data WHERE label IS NOT NULL"
@@ -119,6 +122,7 @@ def get_next(text=None):
     text = next_rec['text']
     before = next_rec['before']
     after = next_rec['after']
+    predicted = next_rec['predicted']
     template_name = '%s.html' % service.settings['type']
     data_url = text if text.startswith('http') else "/proxy?url=%s" % urllib.parse.quote(next_rec['text'])
     data = {
@@ -126,6 +130,7 @@ def get_next(text=None):
         'text': text,
         'before_cxt': before.splitlines() if before else [],
         'after_cxt': after.splitlines() if after else [],
+        'predicted': predicted,
         'task': service.settings['task']
     }
     return render_template(template_name, **data)
@@ -190,8 +195,8 @@ class DbService(object):
 
         samples = []
         for dfno, df in SQLFeed(dbnode,
-                                 origin_columns=['job_responsibility'],
-                                 params=ioparams):
+                                origin_columns=['job_responsibility'],
+                                params=ioparams):
             if dfno > 0:
                 break
             for i, row in df.iterrows():
@@ -203,15 +208,17 @@ class DbService(object):
 
                     before_lines = []
                     if lino > 0:
-                        before_lines = nonempty[max(0, lino-2): lino]
+                        before_lines = nonempty[max(0, lino - 2): lino]
                     before = '\n'.join(before_lines) if before_lines else None
 
                     after_lines = []
                     if lino < (n - 1):
-                        after_lines = nonempty[lino+1: min(n-1, lino+2)+1]
+                        after_lines = nonempty[lino + 1: min(n - 1, lino + 2) + 1]
                     after = '\n'.join(after_lines) if after_lines else None
 
-                    samples.append((nonempty[lino], before, after))
+                    predicted_sec = sec_name(section_of_line(nonempty, lino))
+
+                    samples.append((nonempty[lino], before, after, predicted_sec))
 
         count = self.insert_if_not_exists(samples)
         self.log.info("Inserted %d new records from database." % count)
@@ -237,8 +244,8 @@ class DbService(object):
     def insert_if_not_exists(self, urls):
         count = 0
         cursor = self.db.cursor()
-        for text, before, after in urls:
-            values = (text, None, datetime.now(), before, after)
+        for text, before, after, predicted_sec in urls:
+            values = (text, None, datetime.now(), before, after, predicted_sec)
             # assumption: if rec exists, DB will IGNORE IT
             res = cursor.execute(INSERT_STMT, values)
             count += 1
