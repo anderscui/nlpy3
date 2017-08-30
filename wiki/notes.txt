@@ -1,0 +1,2 @@
+python WikiExtractor2.py --templates TEMPLATES -o zh_classic -b 300K zh_classicalwiki-20170501.xml
+
