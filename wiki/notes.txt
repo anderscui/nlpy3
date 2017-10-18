@@ -1,2 +1,3 @@
 python WikiExtractor2.py --templates TEMPLATES -o zh_classic -b 300K zh_classicalwiki-20170501.xml
 
+python WikiExtractor2.py --templates EN_TEMPLATES -o en_items_raw -b 30M enwiki-20170501-pages-articles-multistream.xml
