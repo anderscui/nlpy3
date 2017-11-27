@@ -1,0 +1,518 @@
+swagger: '2.0'
+info:
+  description: 简历解析
+  version: "2.0"
+  title: Resume
+  # put the contact info for your development or API team
+
+host: tenant_name.mesoor.com
+# all paths will be relative to the basePath specified
+basePath: /v2
+
+# tags are used for organizing operations
+tags:
+- name: developers
+  description: Operations available to regular developers
+schemes:
+- https
+parameters:
+  JSON Web Token: # TODO:
+    name: Authorization
+    in: header
+    required: true
+    description: JSON Web Token
+    type: string
+paths:
+  /parse:
+    post:
+      tags:
+      - developers
+      summary: 简历解析
+      operationId: parseResume
+      description: |
+        将各种格式的简历文件解析成结构化简历数据
+      consumes:
+        - multipart/form-data
+      produces:
+        - application/json
+      parameters:
+        - $ref: "#/parameters/JSON Web Token"
+        - in: formData
+          name: resume
+          required: true
+          description: 待解析的简历
+          type: file
+      responses:
+        200:
+          description: 解析成功
+          schema:
+            $ref: '#/definitions/resume'
+definitions:
+  resume:
+    type: object
+    properties:
+      activities:
+        type: array
+        items:
+          $ref: '#/definitions/Activity'
+      # 社会实践
+      activities_text:
+        type: string
+      awards:
+        type: array
+        items:
+          $ref: '#/definitions/Award'
+      awards_text:
+        description: 获奖信息
+        type: string
+      # 基本信息，详见Basic类型定义
+      basic:
+        $ref: '#/definitions/Basic'
+      # 证书
+      certificates:
+        type: array
+        items:
+          type: string
+        example:  ['ccna', '注册会计师']
+      # 教育经历，Education数组
+      educations:
+        type: array
+        items:
+          $ref: '#/definitions/Education'
+      # 自我评价
+      eval:
+        type: string
+      # 完整的期望职位信息（识别前的文本）
+      expect:
+        type: string
+      # 期望职位信息（识别出的结构化数据）
+      expectation:
+        $ref: '#/definitions/Expectation'
+      # 兴趣爱好
+      interests:
+        type: string
+      # 实习经历，Work数组，数据结构同工作经历
+      interns:
+        type: array
+        items:
+          $ref: '#/definitions/Work'
+      languages:
+        description: 语言技能
+        type: array
+        items:
+          type: string
+        example:  ['cet-4', '英语六级', '初级德语']
+      languages_set:
+        type: array
+        items:
+          $ref: '#/definitions/Language'
+      # 简历文件元信息
+      meta:
+        $ref: '#/definitions/Meta'
+      projects:
+        description: 项目经历，Project数组
+        type: array
+        items:
+          $ref: '#/definitions/Project'
+      provide:
+        $ref: '#/definitions/Provide'
+      public:
+        description: 简历是否公开
+        type: boolean
+        default: true
+      skills:
+        description: 技能列表（识别出的技能名称列表）
+        type: array
+        items:
+          type: string
+        example:  ['Python', '机器学习', '英语']
+      # 完整技能信息（识别前的完整技能信息）
+      skills_text:
+        type: string
+      skills_set:
+        type: array
+        items:
+          $ref: '#/definitions/Skill'
+      # 目前状态
+      status:
+        $ref: '#/definitions/Status'
+      trainings:
+        type: array
+        items:
+          $ref: '#/definitions/Training'
+      update_date:
+        type: string
+        format: date-time
+        description: 简历更新日期
+      version:
+        type: integer
+        description: 简历版本
+        default: 2
+      # 工作经历
+      works:
+        type: array
+        items:
+          $ref: '#/definitions/Work'
+  Basic:
+    properties:
+      name:
+        description: 姓名
+        type: string
+      gender:
+        description: 性别
+        type: string
+      chinese_id:
+        description: 身份证号
+        type: string
+      address:
+        description: 当前所在地的详细信息
+        type: string
+      location:
+        description: 当前所在地的结构化信息
+        $ref: '#/definitions/Location'
+      hukou:
+        description: 户口所在地
+        type: string
+      email:
+        description: 邮箱
+        type: string
+      phone:
+        description: 手机号码
+        type: string
+      qq:
+        description: QQ
+        type: string
+      wechat:
+        description: 微信
+        type: string
+      birthday:
+        description: 出生日期
+        type: string
+        format: date-time
+      marital:
+        type: string
+      political:
+        type: string
+      personal_website:
+        type: string
+        description: 个人网站URL
+      tags:
+        type: array
+        items:
+          type: string
+      work_year:
+        type: integer
+      degree:
+        type: integer
+  Meta:
+    properties:
+      hash:
+        type: string
+      original_file:
+        type: string
+      stored_site:
+        type: string
+      stored_key:
+        type: string
+  Location:
+    properties:
+      id:
+        type: integer
+      country:
+        type: string
+        example: '中国'
+      province:
+        type: string
+        example: '江苏'
+      city:
+        type: string
+        example: '苏州'
+  ExcludeConfig:
+    description: 选项
+    properties:
+      companies:
+        type: array
+        items:
+          type: string
+        description: 公司名
+      industries:
+        type: array
+        items:
+          type: string
+        description: 行业
+      scale_low:
+        type: integer
+        description: 规模下限
+      scale_high:
+        type: integer
+        description: 规模上限
+      fin_stage_low:
+        type: integer
+        description: 融资阶段下限
+      fin_stage_high:
+        type: integer
+        description: 融资阶段上限
+      types:
+        type: array
+        items:
+          type: integer
+        description: 工作性质
+  Expectation:
+    properties:
+      # 期望行业
+      industries:
+        type: array
+        items:
+          type: string
+      # 期望职位
+      job_categories:
+        type: array
+        items:
+          type: string
+      # 期望薪资下限（月薪）
+      salary_low:
+        description: 期望月薪下限
+        type: integer
+      # 期望薪资上限（月薪）
+      salary_high:
+        description: 期望月薪上限
+        type: integer
+      # 工作地点（地址详细信息）
+      locations:
+        type: array
+        items:
+          $ref: '#/definitions/Location'
+      # 工作地点（id，此列表不是由简历解析直接给出）
+      locationIds:
+        type: array
+        items:
+          type: integer
+      # 工作性质
+      work_types:
+        description: （0：全职；1：兼职；2：实习）
+        type: array
+        items:
+          type: integer
+      # 期望入职时间
+      work_time:
+        description: （表示天数，一个月 -> 30）
+        type: integer
+      exclude:
+        description: 排除（黑名单）
+        $ref: '#/definitions/ExcludeConfig'
+  Education:
+    properties:
+      # 相关课程列表
+      courses:
+        type: array
+        items:
+          type: string
+      # 学历
+      degree:
+        type: string
+      # 学校
+      school:
+        type: string
+      # 所学专业
+      major:
+        type: string
+      # 结束日期
+      end_date:
+        type: string
+        format: date-time
+      # 开始日期
+      start_date:
+        type: string
+        format: date-time
+      # 是否已毕业？
+      until_now:
+        type: boolean
+  Work:
+    properties:
+      description:
+        type: string
+        description: 工作描述
+      # 公司名
+      company:
+        type: string
+      # 职位名
+      position:
+        type: string
+      # 结束日期
+      end_date:
+        type: string
+        format: date-time
+      # 开始日期
+      start_date:
+        type: string
+        format: date-time
+      # 是否已结束？
+      until_now:
+        type: boolean
+      company_type:
+        type: string
+      size_low:
+        type: integer
+      size_high:
+        type: integer
+      salary_low:
+        type: integer
+      salary_high:
+        type: integer
+      industry:
+        type: string
+      job_category:
+        type: string
+      professional_title:
+        type: string
+      is_oversea:
+        type: boolean
+      nation:
+        type: string
+      leaving_reason:
+        type: string
+      department:
+        type: string
+      leader:
+        type: string
+      subordinate:
+        type: integer
+      performance:
+        type: string
+  Project:
+    properties:
+      # 项目描述
+      description:
+        type: string
+      # 项目名
+      name:
+        type: string
+      # 职位名
+      position:
+        type: string
+      responsibility:
+        description: 项目职责
+        type: string
+      result:
+        description: 项目成果
+        type: string
+      # 结束日期
+      end_date:
+        type: string
+        format: date-time
+      # 开始日期
+      start_date:
+        type: string
+        format: date-time
+      # 是否已结束？
+      until_now:
+        type: boolean
+  Skill:
+    properties:
+      name:
+        description: 技能名称
+        type: integer
+      month:
+        type: integer
+      level:
+        type: string
+  Language:
+    properties:
+      name:
+        description: 语言名称
+        type: string
+      speak_listen:
+        type: string
+      read_write:
+        type: string
+      exams:
+        type: array
+        items:
+          $ref: '#/definitions/Exam'
+  Status:
+    properties:
+      # 目前状态
+      situation:
+        description: 目前状态（0：目前不找工作；1：正在找工作；2：观望中）
+        type: integer
+      # 目前薪资
+      salary_low:
+        description: 目前月薪下限
+        type: integer
+      # 目前薪资
+      salary_high:
+        description: 目前月薪上限
+        type: integer
+      professional_title:
+        description: 当前职称
+        type: string
+  Training:
+    properties:
+      # 培训描述
+      description:
+        type: string
+      agency:
+        type: string
+      courses:
+        type: array
+        items:
+          type: string
+      certificate:
+        type: string
+      # 结束日期
+      end_date:
+        type: string
+        format: date-time
+      # 开始日期
+      start_date:
+        type: string
+        format: date-time
+  Activity:
+    properties:
+      name:
+        type: string
+      description:
+        description: 获奖描述
+        type: string
+      position:
+        type: string
+      end_date:
+        type: string
+        format: date-time
+      start_date:
+        type: string
+        format: date-time
+      # 是否已结束？
+      until_now:
+        type: boolean
+  Award:
+    properties:
+      name:
+        type: string
+      agency:
+        type: string
+      date:
+        type: string
+        format: date-time
+      description:
+        description: 获奖描述
+        type: string
+  Exam:
+    properties:
+      name:
+        type: string
+      score:
+        type: number
+  Provide:
+    properties:
+      timing:
+        $ref: '#/definitions/WorkTiming'
+  WorkTiming:
+    properties:
+      daysPerWeek:
+        type: integer
+      period:
+        type: integer
+      startAt:
+        type: string
+        format: date-time
