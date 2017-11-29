@@ -10,20 +10,14 @@ LOCS_FILE = 'locs_full.json'
 
 DDL = """CREATE TABLE location_all
 (
-  province_id VARCHAR(255) NOT NULL,
-  province_name VARCHAR(255) NOT NULL,
-  province_short_name VARCHAR(255) NOT NULL,
-  province_geo VARCHAR(255) NOT NULL,
-  city_id VARCHAR(255) NOT NULL,
-  city_name VARCHAR(255) NOT NULL,
-  city_short_name VARCHAR(255) NOT NULL,
-  city_geo VARCHAR(255) NOT NULL,
-  county_id VARCHAR(255) NOT NULL PRIMARY KEY,
-  county_name VARCHAR(255) NOT NULL,
-  county_short_name VARCHAR(255) NOT NULL,
-  county_geo VARCHAR(255) NOT NULL,
-  constraint idx_county_id
-    unique (county_id)
+  code VARCHAR(255) NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  short_name VARCHAR(255) NOT NULL,
+  geo VARCHAR(255) NOT NULL,
+  level VARCHAR(255) NOT NULL,
+  parent_code VARCHAR(255) NOT NULL,
+  constraint idx_code
+    unique (code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_bin;
 """
 
