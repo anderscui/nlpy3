@@ -5,7 +5,9 @@ import logging
 import psycopg2
 import psycopg2.extras
 import psycopg2.extensions
-from psycopg2.extras import Json
+from datetime import datetime
+
+# from psycopg2 import sql
 
 
 class LoggingCursor(psycopg2.extensions.cursor):
@@ -24,7 +26,7 @@ conn = psycopg2.connect(host='mesoor-dev.c1l6advd1fez.rds.cn-north-1.amazonaws.c
                         user='mesoor',
                         password='k4j%Te#hEqpVHABJKtF2',
                         database='mesoor')
-conn.autocommit = True
+# conn.autocommit = True
 # psycopg2.extensions.register_adapter(dict, psycopg2.extras.Json)
 
 
@@ -56,8 +58,8 @@ def select(schema):
                 new_ids = [update_code(loc) for loc in loc_ids]
                 print(row['id'], loc_ids, new_ids)
                 resume['expectation']['locationIds'] = new_ids
-                # records.append((json.dumps(resume, ensure_ascii=False), row['id']))
-                records.append((resume, row['id']))
+                records.append((json.dumps(resume, ensure_ascii=False), row['id']))
+                # records.append((resume, row['id']))
 
     cur.close()
 
@@ -67,28 +69,36 @@ def select(schema):
 
 def update(schema):
     records = select(schema)
-    sql = "UPDATE {}.candidate SET resume = %s WHERE id = %s".format(schema)
-    # sql = "UPDATE {}.candidate SET version = version + 1 WHERE id = %s".format(schema)
+    sql_stat = "UPDATE {}.candidate SET resume = %s, version = version + 1 WHERE id = %s; ".format(schema)
 
     # sql = """UPDATE {}.candidate AS t SET resume = c.resume
     #          FROM (VALUES %s) AS c(resume, id)
     #          WHERE t.id = c.id;""".format(schema)
 
-    sql = """UPDATE tenant_neitui.candidate SET passcode = '5384333' WHERE id = 1; 
-             UPDATE tenant_neitui.candidate SET passcode = '6031893' WHERE id = 2; """
-    print(sql)
+    print(sql_stat)
 
     # values = [({'v': '5384332'}, 1), ({'v': '6031892'}, 2)]
-    values = [({'v': '5384332'}, 1)]
-    values = [(v[0], v[1]) for v in values]
-    # values = [v for v in values]
-    print(values)
+    # print(values)
 
+    start = datetime.now()
+
+    sqls = []
     cur = conn.cursor()
+    for record in records:
+        query = cur.mogrify(sql_stat, record).decode()
+        sqls.append(query)
+
+    sqls = sqls * 50
+    cur.execute('\n'.join(sqls))
+    conn.commit()
+
+    print(datetime.now() - start)
+
+    # cur = conn.cursor()
     # psycopg2.extras.execute_batch(cur, sql, records, page_size=100)
     # psycopg2.extras.execute_values(cur, sql, values, page_size=100)
-    cur.execute(sql)
-    conn.commit()
+    # cur.execute(sql)
+    # conn.commit()
 
 
 if __name__ == '__main__':
