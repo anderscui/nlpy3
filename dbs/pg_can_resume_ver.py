@@ -1,24 +1,23 @@
 # coding=utf-8
 import json
-import logging
 
 import psycopg2
 import psycopg2.extras
 import psycopg2.extensions
 from datetime import datetime
-
-# conn = psycopg2.connect(host='mesoor-dev.c1l6advd1fez.rds.cn-north-1.amazonaws.com.cn',
-#                         user='mesoor',
-#                         password='k4j%Te#hEqpVHABJKtF2',
-#                         database='mesoor')
+import time
 
 
-def connect_db():
-    # conn = psycopg2.connect(host='mesoor-dev.c1l6advd1fez.rds.cn-north-1.amazonaws.com.cn',
-    #                         user='mesoor',
-    #                         password='k4j%Te#hEqpVHABJKtF2',
-    #                         database='mesoor')
+def connect_dev_db():
+    conn = psycopg2.connect(host='mesoor-dev.c1l6advd1fez.rds.cn-north-1.amazonaws.com.cn',
+                            user='mesoor',
+                            password='k4j%Te#hEqpVHABJKtF2',
+                            database='mesoor')
+    # conn.autocommit = True
+    return conn
 
+
+def connect_prod_db():
     conn = psycopg2.connect(host='mesoor.c1l6advd1fez.rds.cn-north-1.amazonaws.com.cn',
                             user='mesoor',
                             password='k4j%Te#hEqpVHABJKtF2',
@@ -27,12 +26,22 @@ def connect_db():
     return conn
 
 
-def db_ver():
+def connect_db():
+    # return connect_dev_db()
+    return connect_prod_db()
+
+
+def update_city(schema, step=5000):
     conn = connect_db()
-    cur = conn.cursor()
-    cur.execute('SELECT version()')
-    ver = cur.fetchone()
-    print(ver)
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+
+    update_sql = """UPDATE {}.city SET city = city;""".format(schema)
+
+    start_time = datetime.now()
+    print(update_sql)
+    cur.execute(update_sql)
+    conn.commit()
+    print(datetime.now() - start_time)
 
     cur.close()
     conn.close()
@@ -66,6 +75,9 @@ def update_resume_version(schema, step=5000):
 
         print(datetime.now() - start_time)
 
+        if max_id > step:
+            time.sleep(40)
+
     cur.close()
     conn.close()
 
@@ -95,6 +107,9 @@ def update_job_version(schema, step=5000):
         conn.commit()
 
         print(datetime.now() - start_time)
+
+        if max_id > step:
+            time.sleep(60)
 
     cur.close()
     conn.close()
@@ -132,10 +147,14 @@ def update_job_candidate_version(schema, step=5000):
 
 def update_tenant(tenant):
     print('start to update tenant: ', tenant)
+
+    update_city(tenant)
     update_job_version(tenant)
     update_resume_version(tenant)
-    update_job_candidate_version(tenant)
     update_job_version(tenant)
+    update_job_candidate_version(tenant)
+
+    print('tenant: ', tenant, 'updated')
 
 
 def get_tenants():
@@ -160,16 +179,17 @@ if __name__ == '__main__':
     # update_tenant('tenant_jobs')
 
     tenants = get_tenants()
-    tenants = ['tenant_junxianandpinpin', 'tenant_chiyu_computer_tech', 'tenant_chouun',
-               'tenant_jingdong_nettech', 'tenant_meiruo']
+    # tenants = ['tenant_neitui', 'tenant_jobs']
+    # tenants = ['tenant_qushixi']
 
     # update all tenants
-    # for t in tenants:
-    #     update_tenant(t)
+    for tenant in tenants:
+        update_tenant(tenant)
+        time.sleep(1)
 
     # db_ver()
 
     # update ocean
-    # update_resume_version('ocean')
+    update_resume_version('ocean')
 
     print(datetime.now() - start_point)

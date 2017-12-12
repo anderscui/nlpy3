@@ -5,8 +5,8 @@ from collections import defaultdict
 from elasticsearch import Elasticsearch
 from elasticsearch.client import CatClient, IndicesClient, NodesClient
 
-# client = Elasticsearch('54.222.177.58:9200')
-client = Elasticsearch('54.223.226.77:9200')
+client = Elasticsearch('54.222.177.58:9200')
+# client = Elasticsearch('54.223.226.77:9200')
 cat_client = CatClient(client)
 ind_client = IndicesClient(client)
 node_client = NodesClient(client)
@@ -55,6 +55,7 @@ def init_index(index):
     put_mapping(index, 'job', 'job.json')
     put_mapping(index, 'candidate', 'candidate.json')
     put_mapping(index, 'job_candidate', 'job_candidate.json')
+    put_mapping(index, 'city', 'city.json')
 
 
 def get_nodes():
@@ -66,10 +67,6 @@ if __name__ == '__main__':
     # json.dump(indices, open('indices.json', 'w'), ensure_ascii=False)
 
     indices = get_indices_from_db()
-    # indices = ['can_ocean', 'can_tenant_neitui', 'can_tenant_jobs']
-    indices = ['can_tenant_junxianandpinpin', 'can_tenant_chiyu_computer_tech', 'can_tenant_chouun',
-               'can_tenant_jingdong_nettech', 'can_tenant_meiruo']
+    # indices = ['can_ocean', 'can_tenant_neitui', 'can_tenant_jobs', 'can_tenant_qushixi']
     for index in indices:
         init_index(index)
-
-    # get_nodes()
