@@ -108,6 +108,8 @@ version = '2.75'
 
 options = SimpleNamespace(
 
+    replaceInternalLinks = False,
+
     ##
     # Defined in <siteinfo>
     # We include as default Template, when loading external template file.
@@ -214,10 +216,10 @@ def keepPage(ns, page):
     if ns not in {'0', '14'}:               # Aritcle
         return False
     # remove disambig pages if desired
-    # if options.filter_disambig_pages:
-    #     for line in page:
-    #         if filter_disambig_page_pattern.match(line):
-    #             return False
+    if options.filter_disambig_pages:
+        for line in page:
+            if filter_disambig_page_pattern.match(line):
+                return False
     return True
 
 
@@ -627,10 +629,10 @@ class Extractor(object):
         # $text = $frame->expand( $dom );
         #
         text = self.transform(text)
-        # text = self.wiki2text(text)
-        # text = compact(self.clean(text))
-        # text = [title_str] + text
-        text = [text]
+        text = self.wiki2text(text)
+        text = compact(self.clean(text))
+        text = [title_str] + text
+        # text = [text]
 
         if sum(len(line) for line in text) < options.min_text_length:
             return
@@ -709,9 +711,10 @@ class Extractor(object):
         text = text.replace("'''", '').replace("''", '"')
 
         # replace internal links
-        # text = replaceInternalLinks(text)
+        if options.replaceInternalLinks:
+            text = replaceInternalLinks(text)
 
-        # replace external links
+        # TODO: replace external links
         text = replaceExternalLinks(text)
 
         # drop MagicWords behavioral switches
@@ -3100,6 +3103,9 @@ def main():
 
 
     groupP = parser.add_argument_group('Processing')
+    # TODO:
+    groupP.add_argument("--replace_internal", action="store_true",
+                        help="produce HTML output, subsumes --links")
     groupP.add_argument("--html", action="store_true",
                         help="produce HTML output, subsumes --links")
     groupP.add_argument("-l", "--links", action="store_true",
@@ -3143,6 +3149,8 @@ def main():
 
     args = parser.parse_args()
 
+    # TODO:
+    # options.replace
     options.keepLinks = args.links
     options.keepSections = args.sections
     options.keepLists = args.lists

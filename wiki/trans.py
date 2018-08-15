@@ -51,7 +51,6 @@ def translate(title):
 
 
 xlore = json.load(open('xlore.json'))
-
 items = json.load(open('items.json'))
 pitems = items['0']
 citems = items['14']
@@ -94,6 +93,7 @@ re_cn = re.compile("[\u4E00-\u9FD5]+", re.U)
 
 def filter_zh(enks):
     return [enk for enk in enks if not re_cn.search(enk)]
+
 
 mba = json.load(open('mba_zh-CN_en.json'))
 # mba2 = {}
