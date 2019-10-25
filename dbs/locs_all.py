@@ -16,8 +16,6 @@ from toolz.recipes import countby, partitionby
 
 from elasticsearch_dsl.query import Match, Q
 
-Q()
-
 
 def json_load(file):
     return json.load(open(file))

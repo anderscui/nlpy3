@@ -89,3 +89,9 @@ ENV/
 .ropeproject
 
 .idea/*
+
+.ipynb_checkpoints/
+aclImdb/
+aclImdb*.gz
+housing.*
+news_category*.json
